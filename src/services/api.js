@@ -203,30 +203,39 @@ class ApiService {
 
   async healthCheck() {
     try {
-      console.log('🏥 Performing health check...');
-      const response = await this.request('/health');
+      console.log('🏥 Performing health check using vehicles endpoint...');
+      // Use vehicles endpoint instead of /health since it's working
+      const response = await this.request('/vehicle/v1/all?page=0&size=1');
       
       return {
-        status: response.status === 'ok' || response.status === 'healthy' ? 'healthy' : 'degraded',
-        message: 'API is responsive',
+        status: response && response.success ? 'healthy' : 'degraded',
+        message: 'API is responsive via vehicles endpoint',
         timestamp: new Date().toISOString(),
         endpoint: this.baseURL
       };
     } catch (error) {
       console.warn('⚠️ Health check failed:', error.message);
       
+      // Try basic connectivity test
       try {
-        const basicResponse = await fetch(`${this.baseURL}/health`).catch(() => null);
-        if (basicResponse && basicResponse.ok) {
+        const basicResponse = await fetch(`${this.baseURL}/vehicle/v1/all?page=0&size=1`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(this.token && { Authorization: `Bearer ${this.token}` })
+          }
+        });
+        
+        if (basicResponse.ok) {
           return {
             status: 'degraded',
-            message: 'Server reachable but authentication may be required',
+            message: 'Server reachable but may have authentication issues',
             timestamp: new Date().toISOString(),
             endpoint: this.baseURL
           };
         }
       } catch (e) {
-        // Ignore
+        // Ignore basic test failure
       }
       
       return {
@@ -322,6 +331,177 @@ class ApiService {
     } catch (error) {
       console.error('❌ Failed to fetch devices:', error);
       throw error;
+    }
+  }
+
+  // ===========================================
+  // ALARM ENDPOINTS
+  // ===========================================
+
+  async getManagerAlarms(page = 0, size = 20, sortBy = 'alarmId', direction = 'desc') {
+    try {
+      console.log('🚨 Fetching manager alarms from API...');
+      const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
+      const response = await this.request(endpoint);
+      
+      if (response.data && Array.isArray(response.data)) {
+        const transformedData = response.data.map(alarm => ({
+          alarm_id: alarm.alarmId || alarm.alarm_id,
+          device_id: alarm.deviceId || alarm.device_id,
+          alarm_type: alarm.alarmType || alarm.alarm_type || 'System Alert',
+          description: alarm.description || 'Alert detected',
+          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
+          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
+          acceleration: alarm.acceleration ? parseFloat(alarm.acceleration) : null,
+          drowsiness: Boolean(alarm.drowsiness),
+          rash_driving: Boolean(alarm.rashDriving || alarm.rash_driving),
+          collision: Boolean(alarm.collision),
+          severity: alarm.severity || 'medium',
+          status: alarm.status || 'active',
+          created_at: alarm.createdAt || alarm.created_at || new Date().toISOString()
+        }));
+        
+        console.log(`✅ Found ${transformedData.length} alarms`);
+        
+        return {
+          success: true,
+          data: transformedData,
+          totalElements: response.totalElements || transformedData.length,
+          message: `Found ${transformedData.length} alarms`
+        };
+      }
+      
+      return { success: true, data: [], message: 'No alarms found' };
+    } catch (error) {
+      console.error('❌ Failed to fetch manager alarms:', error);
+      return { success: false, data: [], error: error.message };
+    }
+  }
+
+  async getDeviceAlarms(deviceId, page = 0, size = 20, sortBy = 'deviceId', direction = 'desc') {
+    try {
+      console.log(`🚨 Fetching alarms for device ${deviceId} from API...`);
+      const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
+      const response = await this.request(endpoint);
+      
+      if (response.data && Array.isArray(response.data)) {
+        const transformedData = response.data.map(alarm => ({
+          alarm_id: alarm.alarmId || alarm.alarm_id,
+          device_id: alarm.deviceId || alarm.device_id,
+          alarm_type: alarm.alarmType || alarm.alarm_type || 'Device Alert',
+          description: alarm.description || 'Device alert detected',
+          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
+          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
+          severity: alarm.severity || 'medium',
+          status: alarm.status || 'active',
+          created_at: alarm.createdAt || alarm.created_at || new Date().toISOString()
+        }));
+        
+        return {
+          success: true,
+          data: transformedData,
+          message: `Found ${transformedData.length} device alarms`
+        };
+      }
+      
+      return { success: true, data: [], message: 'No device alarms found' };
+    } catch (error) {
+      console.error(`❌ Failed to fetch alarms for device ${deviceId}:`, error);
+      return { 
+        success: false, 
+        data: [], 
+        error: error.message,
+        message: `Could not fetch alarms for device ${deviceId}: ${error.message}`
+      };
+    }
+  }
+
+  async createAlarm(alarmData) {
+    try {
+      console.log('🚨 Creating alarm via API...');
+      const response = await this.request('/alarm/v1/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          deviceId: alarmData.device_id || alarmData.deviceId,
+          acceleration: alarmData.acceleration,
+          latitude: alarmData.latitude,
+          longitude: alarmData.longitude,
+          drowsiness: alarmData.drowsiness,
+          rashDriving: alarmData.rash_driving || alarmData.rashDriving,
+          collision: alarmData.collision,
+          alarmType: alarmData.alarm_type || alarmData.alarmType,
+          description: alarmData.description
+        })
+      });
+      return response;
+    } catch (error) {
+      console.error('❌ Failed to create alarm:', error);
+      throw error;
+    }
+  }
+
+  // ===========================================
+  // TELEMETRY ENDPOINTS
+  // ===========================================
+
+  async getDeviceTelemetry(deviceId, page = 0, size = 20) {
+    try {
+      console.log(`📊 Fetching telemetry for device ${deviceId}...`);
+      
+      // Try multiple endpoints to find working telemetry data
+      const endpoints = [
+        `/device/v1/data/${deviceId}?direction=desc&size=${size}`,
+        `/device/v1/data/${deviceId}?page=${page}&size=${size}`,
+        `/deviceTelemetry/v1/device/${deviceId}?page=${page}&size=${size}`
+      ];
+      
+      for (const endpoint of endpoints) {
+        try {
+          const response = await this.request(endpoint);
+          
+          if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+            const transformedData = response.data.map(item => ({
+              id: item.id || `temp_${Date.now()}_${Math.random()}`,
+              device_id: item.device_id || item.deviceId,
+              vehicle_id: item.vehicle_id || item.vehicleId,
+              speed: item.speed ? parseFloat(item.speed) : null,
+              latitude: item.latitude ? parseFloat(item.latitude) : null,
+              longitude: item.longitude ? parseFloat(item.longitude) : null,
+              acceleration: item.acceleration ? parseFloat(item.acceleration) : null,
+              drowsiness: Boolean(item.drowsiness),
+              rash_driving: Boolean(item.rashDriving || item.rash_driving),
+              collision: Boolean(item.collision),
+              timestamp: item.timestamp || item.createdAt || new Date().toISOString()
+            }));
+            
+            return {
+              success: true,
+              data: transformedData,
+              endpoint_used: endpoint,
+              message: `Found ${transformedData.length} telemetry records`
+            };
+          }
+        } catch (endpointError) {
+          console.warn(`⚠️ Endpoint ${endpoint} failed:`, endpointError.message);
+          continue;
+        }
+      }
+      
+      return {
+        success: false,
+        data: [],
+        attempted_endpoints: endpoints,
+        message: `No telemetry data found for device ${deviceId}`
+      };
+      
+    } catch (error) {
+      console.error(`❌ Failed to fetch telemetry for device ${deviceId}:`, error);
+      return {
+        success: false,
+        data: [],
+        error: error.message,
+        message: `Could not fetch telemetry for device ${deviceId}: ${error.message}`
+      };
     }
   }
 }
