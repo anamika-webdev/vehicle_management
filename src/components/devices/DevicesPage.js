@@ -1,594 +1,519 @@
-// Updated DevicesPage.js with improved telemetry display and debugging
-// src/components/devices/DevicesPage.js
-
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, Plus, Search, Filter, Eye, 
   AlertTriangle, CheckCircle, 
-  RefreshCw, Bug
+  RefreshCw, Bug, Database, Wifi, Navigation
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
-import apiService from '../../services/api';
 
 const DevicesPage = ({ onViewDevice }) => {
-  const { data, loading, simulateDeviceData, fetchData } = useData();
-  const { showSuccess, showError, showWarning } = useNotification();
+  const { 
+    data, 
+    loading, 
+    error,
+    refreshData, 
+    fetchAllData,
+    connectionStatus,
+    stats 
+  } = useData();
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [showDebugInfo, setShowDebugInfo] = useState(process.env.NODE_ENV === 'development');
+  const [showDebugInfo, setShowDebugInfo] = useState(true);
+  const [localDevices, setLocalDevices] = useState([]);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState(null);
+  const [showRouteDialog, setShowRouteDialog] = useState(false);
 
-  // Auto-refresh devices data
+  useEffect(() => {
+    console.log('🔍 DevicesPage - Full Debug Info:', {
+      contextExists: !!useData,
+      dataExists: !!data,
+      dataDevices: data?.devices,
+      devicesLength: data?.devices?.length || 0,
+      devicesWithTelemetry: data?.devices?.filter(d => d.has_telemetry)?.length || 0,
+      loading,
+      error,
+      connectionStatus,
+      stats
+    });
+    
+    if (data?.devices?.length > 0) {
+      console.log('🔍 Individual devices:');
+      data.devices.forEach((device, index) => {
+        console.log(`  Device ${index + 1}:`, {
+          device_id: device.device_id,
+          name: device.device_name,
+          has_telemetry: device.has_telemetry,
+          telemetry_status: device.telemetry_status,
+          status: device.status
+        });
+      });
+    } else {
+      console.log('🔍 No devices found in data.devices');
+      console.log('🔍 Raw data object:', data);
+    }
+  }, [data, loading, error, connectionStatus, stats]);
+
+  useEffect(() => {
+    console.log('🔍 DevicesPage mounted, forcing data fetch...');
+    if (fetchAllData) {
+      fetchAllData(false);
+    }
+  }, [fetchAllData]);
+
+  useEffect(() => {
+    const fetchDirectly = async () => {
+      if (localLoading) return;
+      
+      try {
+        setLocalLoading(true);
+        console.log('🔄 Direct API fetch as backup...');
+        
+        const token = localStorage.getItem('authToken');
+        const response = await fetch('http://164.52.194.198:9090/device/v1/all?page=0&size=100', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (response.ok) {
+          const apiData = await response.json();
+          console.log('✅ Direct API response:', apiData);
+          
+          if (apiData.success && apiData.data) {
+            const normalizedDevices = apiData.data.map(device => {
+              const deviceId = device.device_id || device.deviceId || device.id;
+              return {
+                ...device,
+                device_id: deviceId,
+                device_name: device.device_name || device.deviceName || device.name || `Device ${deviceId}`,
+                device_type: device.device_type || device.deviceType || device.type || 'Unknown',
+                status: device.status || 'Unknown',
+                has_telemetry: false,
+                telemetry_status: 'pending'
+              };
+            });
+            
+            setLocalDevices(normalizedDevices);
+            console.log('✅ Local devices set:', normalizedDevices);
+          }
+        } else {
+          console.error('❌ Direct API failed with status:', response.status);
+        }
+      } catch (error) {
+        console.error('❌ Direct API error:', error);
+      } finally {
+        setLocalLoading(false);
+      }
+    };
+    
+    const timeout = setTimeout(() => {
+      if (!data?.devices?.length && !loading) {
+        console.log('⚠️ Context data empty after 3s, trying direct API...');
+        fetchDirectly();
+      }
+    }, 3000);
+    
+    return () => clearTimeout(timeout);
+  }, [data?.devices?.length, loading, localLoading]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       console.log('🔄 Auto-refreshing devices data...');
-      fetchData(true); // Silent refresh
-      setLastUpdate(new Date());
-    }, 30000); // Every 30 seconds
+      if (fetchAllData) {
+        fetchAllData(true);
+        setLastUpdate(new Date());
+      }
+    }, 30000);
 
     return () => clearInterval(interval);
-  }, [fetchData]);
-
-  // Debug logging for telemetry data
-  useEffect(() => {
-    if (showDebugInfo) {
-      console.log('🔍 DevicesPage - Current devices:', data.devices);
-      console.log('🔍 DevicesPage - Devices with telemetry:', 
-        data.devices.filter(d => d.last_updated).length
-      );
-      
-      // Log each device's telemetry status
-      data.devices.forEach(device => {
-        console.log(`Device ${device.device_id}:`, {
-          status: device.status,
-          last_updated: device.last_updated,
-          has_location: !!(device.latitude && device.longitude),
-          has_acceleration: !!device.acceleration,
-          telemetry_count: device.telemetry_count || 0,
-          drowsiness_level: device.drowsiness_level,
-          rash_driving: device.rash_driving,
-          collision_detected: device.collision_detected
-        });
-      });
-    }
-  }, [data.devices, showDebugInfo]);
+  }, [fetchAllData]);
 
   const handleManualRefresh = async () => {
     setRefreshing(true);
     try {
-      console.log('🔄 Manual devices refresh triggered');
-      await fetchData();
-      setLastUpdate(new Date());
-      showSuccess('Refreshed', 'Device data updated successfully');
+      console.log('🔄 Manual refresh triggered from DevicesPage');
+      if (refreshData) {
+        await refreshData();
+        setLastUpdate(new Date());
+        console.log('✅ Manual refresh completed');
+      }
     } catch (error) {
       console.error('❌ Manual refresh failed:', error);
-      showError('Refresh Failed', `Failed to refresh data: ${error.message}`);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const handleDeviceSimulation = async (deviceId, scenario) => {
-    try {
-      console.log('🎭 Device simulation triggered:', { deviceId, scenario });
-      await simulateDeviceData(deviceId, scenario);
-      
-      // Refresh data after simulation
-      setTimeout(() => {
-        fetchData(true);
-        setLastUpdate(new Date());
-      }, 2000);
-      
-    } catch (error) {
-      console.error('❌ Device simulation failed:', error);
-    }
-  };
+  const devices = data?.devices?.length > 0 ? data.devices : localDevices;
+  const hasDevices = devices.length > 0;
+  const isLoading = loading || localLoading;
 
-  const handleTestTelemetryFetch = async (deviceId) => {
-    try {
-      console.log(`🧪 Testing telemetry fetch for device ${deviceId}...`);
-      const response = await apiService.getDeviceTelemetry(deviceId, 0, 5);
-      console.log(`📊 Telemetry test result for device ${deviceId}:`, response);
-      
-      if (response.success && response.data.length > 0) {
-        showSuccess('Test Successful', `Found ${response.data.length} telemetry records for device ${deviceId}`);
-      } else {
-        showWarning('No Data', `No telemetry data found for device ${deviceId}`);
-      }
-    } catch (error) {
-      console.error(`❌ Telemetry test failed for device ${deviceId}:`, error);
-      showError('Test Failed', `Telemetry test failed: ${error.message}`);
-    }
-  };
-
-  const formatTime = (timestamp) => {
-    return timestamp ? new Date(timestamp).toLocaleString() : 'Never';
-  };
-
-  const getDeviceStatusText = (device) => {
-    if (device.collision_detected) return 'COLLISION ALERT';
-    if (device.rash_driving) return 'RASH DRIVING';
-    if (device.drowsiness_level > 50) return 'DROWSY';
-    if (device.status === 'Active') return 'NORMAL';
-    return device.status || 'OFFLINE';
-  };
-
-  const getDeviceStatusColor = (device) => {
-    if (device.collision_detected) return 'text-red-600 bg-red-100';
-    if (device.rash_driving) return 'text-orange-600 bg-orange-100';
-    if (device.drowsiness_level > 50) return 'text-yellow-600 bg-yellow-100';
-    if (device.status === 'Active') return 'text-green-600 bg-green-100';
-    return 'text-gray-600 bg-gray-100';
-  };
-
-  const hasDeviceAlerts = (device) => {
-    return device.collision_detected || device.rash_driving || device.drowsiness_level > 30;
-  };
-
-  // Filter devices based on search and filter criteria
-  const filteredDevices = data.devices.filter(device => {
-    const matchesSearch = !searchTerm || 
-      device.device_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      device.device_id?.toString().includes(searchTerm) ||
-      device.device_type?.toLowerCase().includes(searchTerm.toLowerCase());
-
-    const matchesFilter = filterStatus === 'all' || 
-      (filterStatus === 'active' && device.status === 'Active') ||
-      (filterStatus === 'inactive' && device.status !== 'Active') ||
-      (filterStatus === 'alerts' && hasDeviceAlerts(device)) ||
-      (filterStatus === 'unassigned' && !device.vehicle_id);
-
-    return matchesSearch && matchesFilter;
+  console.log('🔍 Final render decision:', {
+    contextDevices: data?.devices?.length || 0,
+    localDevices: localDevices.length,
+    finalDevices: devices.length,
+    isLoading,
+    hasDevices
   });
 
-  // Device Card Component with enhanced telemetry info
-  const DeviceCard = ({ device }) => {
-    const vehicle = data.vehicles.find(v => v.vehicle_id === device.vehicle_id);
+  const filteredDevices = devices.filter(device => {
+    const matchesSearch = !searchTerm || 
+      (device.device_name && device.device_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (device.device_id && device.device_id.toString().includes(searchTerm)) ||
+      (device.device_type && device.device_type.toLowerCase().includes(searchTerm.toLowerCase()));
     
+    const matchesStatus = filterStatus === 'all' || 
+      (filterStatus === 'active' && device.status === 'Active') ||
+      (filterStatus === 'inactive' && device.status !== 'Active') ||
+      (filterStatus === 'with_telemetry' && device.has_telemetry) ||
+      (filterStatus === 'without_telemetry' && !device.has_telemetry);
+    
+    return matchesSearch && matchesStatus;
+  });
+
+  const getDeviceStatus = (device) => {
+    if (!device.device_id || device.device_id === 'unknown') {
+      return { text: 'Invalid ID', color: 'text-red-600 bg-red-100' };
+    }
+    
+    if (device.has_telemetry) {
+      return { text: 'Active with Data', color: 'text-green-600 bg-green-100' };
+    }
+    
+    if (device.status === 'Active') {
+      return { text: 'Active (No Data)', color: 'text-yellow-600 bg-yellow-100' };
+    }
+    
+    return { text: device.status || 'Unknown', color: 'text-gray-600 bg-gray-100' };
+  };
+
+  const getTelemetryIcon = (device) => {
+    if (device.has_telemetry) {
+      return <CheckCircle className="w-4 h-4 text-green-500" />;
+    }
+    
+    if (device.telemetry_status === 'fetch_error') {
+      return <AlertTriangle className="w-4 h-4 text-red-500" />;
+    }
+    
+    return <Shield className="w-4 h-4 text-gray-400" />;
+  };
+
+  const formatLastUpdate = (timestamp) => {
+    if (!timestamp) return 'Never';
+    
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString();
+    } catch (error) {
+      return 'Invalid date';
+    }
+  };
+
+  if (isLoading && !hasDevices) {
     return (
-      <div className={`p-4 border rounded-lg hover:shadow-md transition-shadow ${
-        hasDeviceAlerts(device) ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'
-      }`}>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${
-              device.status === 'Active' ? 'bg-green-500' : 'bg-gray-400'
-            }`}></div>
-            <div>
-              <h4 className="font-medium">{device.device_name || `Device ${device.device_id}`}</h4>
-              <p className="text-sm text-gray-600">{device.device_type}</p>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 mx-auto mb-4 text-blue-600 animate-spin" />
+          <p className="text-gray-600">Loading devices...</p>
+          <p className="mt-2 text-sm text-gray-500">
+            Connection Status: {connectionStatus || 'Unknown'}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">
+            Context: {data?.devices?.length || 0} devices, Local: {localDevices.length} devices
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !hasDevices) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <AlertTriangle className="w-8 h-8 mx-auto mb-4 text-red-600" />
+          <p className="font-medium text-gray-900">Error loading devices</p>
+          <p className="mt-1 text-sm text-red-600">{error}</p>
+          <button 
+            onClick={handleManualRefresh}
+            disabled={refreshing}
+            className="px-4 py-2 mt-4 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {refreshing ? 'Retrying...' : 'Retry'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Device Management</h1>
+          <p className="text-gray-600">
+            Manage and monitor your IoT devices ({filteredDevices.length} of {devices.length} devices)
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
+        <div className="p-6 bg-white rounded-lg shadow">
+          <div className="flex items-center">
+            <Shield className="w-8 h-8 text-blue-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Total Devices</p>
+              <p className="text-2xl font-semibold text-gray-900">{devices.length}</p>
             </div>
           </div>
-          <div className="flex gap-1">
-            <button
-              onClick={() => onViewDevice && onViewDevice(device.device_id)}
-              className="p-1 text-gray-400 hover:text-gray-600"
-              title="View Details"
+        </div>
+
+        <div className="p-6 bg-white rounded-lg shadow">
+          <div className="flex items-center">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">With Location</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {devices.filter(d => d.has_telemetry).length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 bg-white rounded-lg shadow">
+          <div className="flex items-center">
+            <AlertTriangle className="w-8 h-8 text-yellow-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Issues</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {devices.filter(d => !d.device_id || d.device_id === 'unknown' || d.telemetry_status === 'fetch_error').length}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6 bg-white rounded-lg shadow">
+          <div className="flex items-center">
+            <Eye className="w-8 h-8 text-purple-600" />
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-600">Active</p>
+              <p className="text-2xl font-semibold text-gray-900">
+                {devices.filter(d => d.status === 'Active').length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 p-6 bg-white rounded-lg shadow md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-1 gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute w-4 h-4 text-gray-400 transform -translate-y-1/2 left-3 top-1/2" />
+            <input
+              type="text"
+              placeholder="Search devices by name, ID, or type..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full py-2 pl-10 pr-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          
+          <div className="relative">
+            <Filter className="absolute w-4 h-4 text-gray-400 transform -translate-y-1/2 left-3 top-1/2" />
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="py-2 pl-10 pr-8 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <Eye className="w-4 h-4" />
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="with_telemetry">With Location</option>
+              <option value="without_telemetry">No Location</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {!hasDevices ? (
+        <div className="p-12 text-center bg-white rounded-lg shadow">
+          <Shield className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+          <h3 className="mb-2 text-lg font-medium text-gray-900">No Devices Found</h3>
+          <p className="mb-4 text-gray-600">
+            {isLoading ? 'Loading devices...' : 'No devices are currently available in the system.'}
+          </p>
+          <div className="space-y-2">
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              {refreshing ? 'Loading...' : 'Refresh Data'}
             </button>
-            {showDebugInfo && (
-              <button
-                onClick={() => handleTestTelemetryFetch(device.device_id)}
-                className="p-1 text-blue-400 hover:text-blue-600"
-                title="Test Telemetry"
-              >
-                <Bug className="w-4 h-4" />
-              </button>
-            )}
+            <p className="text-xs text-gray-500">
+              Tried: Context API ({data?.devices?.length || 0}) + Direct API ({localDevices.length})
+            </p>
           </div>
         </div>
-
-        {/* Device Status */}
-        <div className="mb-3">
-          <span className={`px-2 py-1 text-xs rounded-full ${getDeviceStatusColor(device)}`}>
-            {getDeviceStatusText(device)}
-          </span>
-        </div>
-
-        {/* Vehicle Assignment */}
-        <div className="mb-3 text-sm">
-          <span className="text-gray-600">Vehicle: </span>
-          <span className="font-medium">
-            {vehicle ? vehicle.vehicle_number : 'Unassigned'}
-          </span>
-        </div>
-
-        {/* Telemetry Info */}
-        <div className="mb-3 space-y-1 text-xs text-gray-600">
-          <div className="flex justify-between">
-            <span>Location:</span>
-            <span>
-              {device.latitude && device.longitude 
-                ? `${device.latitude.toFixed(4)}, ${device.longitude.toFixed(4)}`
-                : 'No data'}
-            </span>
+      ) : (
+        <div className="overflow-hidden bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-medium text-gray-900">
+                Device List ({devices.length} total)
+              </h3>
+            </div>
           </div>
-          <div className="flex justify-between">
-            <span>Acceleration:</span>
-            <span>
-              {device.acceleration ? `${device.acceleration.toFixed(2)} m/s²` : 'No data'}
-            </span>
-          </div>
-          <div className="flex justify-between">
-            <span>Last Update:</span>
-            <span>{device.last_updated ? new Date(device.last_updated).toLocaleTimeString() : 'Never'}</span>
-          </div>
-          {showDebugInfo && (
-            <div className="flex justify-between">
-              <span>Telemetry Records:</span>
-              <span>{device.telemetry_count || 0}</span>
+          
+          {filteredDevices.length === 0 ? (
+            <div className="p-12 text-center">
+              <Search className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="mb-2 text-lg font-medium text-gray-900">No devices match your search</h3>
+              <p className="text-gray-600">Try adjusting your search or filter criteria</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
+                      Device
+                    </th>
+                    <th className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
+                      Status
+                    </th>
+                    <th className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
+                      Location
+                    </th>
+                    <th className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
+                      Last Update
+                    </th>
+                    <th className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredDevices.map((device) => {
+                    const deviceId = device.device_id || device.deviceId || device.id || 'unknown';
+                    const status = getDeviceStatus(device);
+                    
+                    return (
+                      <tr key={deviceId} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center">
+                            {getTelemetryIcon(device)}
+                            <div className="ml-4">
+                              <div className="text-sm font-medium text-gray-900">
+                                {device.device_name || `Device ${deviceId}`}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                ID: {deviceId} • Type: {device.device_type || 'Unknown'}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status.color}`}>
+                            {status.text}
+                          </span>
+                        </td>
+                        
+                        <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">
+                          {device.has_telemetry ? (
+                            <div>
+                              <div className="font-medium text-green-600">
+                                {device.telemetry_count || 0} records
+                              </div>
+                              {device.has_location && (
+                                <div className="text-xs text-gray-500">GPS available</div>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="text-gray-500">
+                              <div>No data</div>
+                              {device.telemetry_status && (
+                                <div className="text-xs">Status: {device.telemetry_status}</div>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        
+                        <td className="px-6 py-4 text-sm text-gray-500 whitespace-nowrap">
+                          {formatLastUpdate(device.last_updated)}
+                        </td>
+                        
+                        <td className="px-6 py-4 text-sm font-medium whitespace-nowrap">
+                          <button
+                            onClick={() => onViewDevice && onViewDevice(deviceId)}
+                            className="mr-4 text-blue-600 hover:text-blue-900"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedDevice(device);
+                              setShowRouteDialog(true);
+                            }}
+                            className="text-green-600 hover:text-green-900"
+                            disabled={!device.has_telemetry}
+                          >
+                            <Navigation className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
+      )}
 
-        {/* Safety Indicators */}
-        {hasDeviceAlerts(device) && (
-          <div className="p-2 mb-3 text-xs bg-red-100 border border-red-200 rounded">
-            <div className="flex items-center gap-1 text-red-800">
-              <AlertTriangle className="w-3 h-3" />
-              <span className="font-medium">Active Alerts</span>
+      {showRouteDialog && selectedDevice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="w-full max-w-2xl p-6 bg-white rounded-lg shadow-lg">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold">Route for {selectedDevice.device_name || `Device ${selectedDevice.device_id}`}</h2>
+              <button
+                onClick={() => setShowRouteDialog(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
             </div>
-            <div className="mt-1 space-y-1">
-              {device.collision_detected && (
-                <div className="text-red-700">🚨 Collision Detected</div>
+
+            <div className="mb-4">
+              <p><strong>ID:</strong> {selectedDevice.device_id}</p>
+              <p><strong>Type:</strong> {selectedDevice.device_type || 'Unknown'}</p>
+              <p><strong>Status:</strong> {getDeviceStatus(selectedDevice).text}</p>
+              <p><strong>Last Update:</strong> {formatLastUpdate(selectedDevice.last_updated)}</p>
+              {selectedDevice.has_telemetry && (
+                <p><strong>Location:</strong> {selectedDevice.current_latitude}, {selectedDevice.current_longitude}</p>
               )}
-              {device.rash_driving && (
-                <div className="text-orange-700">⚠️ Rash Driving</div>
-              )}
-              {device.drowsiness_level > 30 && (
-                <div className="text-yellow-700">😴 Drowsiness ({device.drowsiness_level}%)</div>
-              )}
             </div>
-          </div>
-        )}
 
-        {/* Simulation Controls */}
-        {device.status === 'Active' && (
-          <div className="space-y-2">
-            <div className="text-xs font-medium text-gray-600">Test Scenarios:</div>
-            <div className="flex flex-wrap gap-1">
-              <button
-                onClick={() => handleDeviceSimulation(device.device_id, 'collision')}
-                className="px-2 py-1 text-xs text-red-700 bg-red-100 rounded hover:bg-red-200"
-                disabled={loading}
-              >
-                Collision
-              </button>
-              <button
-                onClick={() => handleDeviceSimulation(device.device_id, 'rash_driving')}
-                className="px-2 py-1 text-xs text-orange-700 bg-orange-100 rounded hover:bg-orange-200"
-                disabled={loading}
-              >
-                Rash
-              </button>
-              <button
-                onClick={() => handleDeviceSimulation(device.device_id, 'drowsiness')}
-                className="px-2 py-1 text-xs text-orange-700 bg-orange-100 rounded hover:bg-orange-200"
-                disabled={loading}
-              >
-                Drowsy
-              </button>
-              <button
-                onClick={() => handleDeviceSimulation(device.device_id, 'normal')}
-                className="px-2 py-1 text-xs text-green-700 bg-green-100 rounded hover:bg-green-200"
-                disabled={loading}
-              >
-                Normal
-              </button>
+            <div className="h-64 mb-4 border rounded" id={`map-${selectedDevice.device_id}`}>
+              {/* Placeholder for Leaflet Map - Add Leaflet.js CDN and script if needed */}
+              <p className="text-center text-gray-500">Map Placeholder (Add Leaflet.js for real map)</p>
             </div>
-          </div>
-        )}
-      </div>
-    );
-  };
 
-  // Data Table Component for devices
-  const DeviceDataTable = () => {
-    const tableRows = filteredDevices.map(device => {
-      const vehicle = data.vehicles.find(v => v.vehicle_id === device.vehicle_id);
-      return {
-        device_id: device.device_id,
-        device_name: device.device_name,
-        device_type: device.device_type,
-        status: getDeviceStatusText(device),
-        vehicle_assignment: vehicle ? vehicle.vehicle_number : 'Unassigned',
-        last_updated: device.last_updated ? formatTime(device.last_updated) : 'No data',
-        has_telemetry: !!(device.latitude && device.longitude),
-        telemetry_count: device.telemetry_count || 0
-      };
-    });
-
-    return (
-      <div className="bg-white rounded-lg shadow-md">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Device Management</h3>
-            <div className="flex gap-2">
-              {showDebugInfo && (
-                <button
-                  onClick={() => setShowDebugInfo(!showDebugInfo)}
-                  className="flex items-center gap-2 px-3 py-1 text-xs text-blue-600 border border-blue-300 rounded hover:bg-blue-50"
-                >
-                  <Bug className="w-3 h-3" />
-                  Debug: {showDebugInfo ? 'ON' : 'OFF'}
-                </button>
-              )}
-              <button
-                onClick={handleManualRefresh}
-                disabled={refreshing}
-                className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 border border-blue-300 rounded hover:bg-blue-50 disabled:opacity-50"
-              >
-                <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </button>
-              <button
-                disabled
-                className="flex items-center gap-2 px-4 py-2 text-gray-400 bg-gray-100 rounded-lg cursor-not-allowed"
-                title="Add new device functionality coming soon"
-              >
-                <Plus className="w-4 h-4" />
-                Add Device
-              </button>
-            </div>
-          </div>
-          
-          {/* Last Update Info */}
-          <div className="mt-2 text-xs text-gray-500">
-            Last updated: {lastUpdate.toLocaleTimeString()} | 
-            Total devices: {data.devices.length} | 
-            Filtered: {filteredDevices.length}
+            <button
+              onClick={() => setShowRouteDialog(false)}
+              className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+            >
+              Close
+            </button>
           </div>
         </div>
-        
-        {/* Debug Info Panel */}
-        {showDebugInfo && (
-          <div className="p-4 border-b border-gray-200 bg-gray-50">
-            <h4 className="mb-2 text-sm font-medium text-gray-800">Debug Information</h4>
-            <div className="grid grid-cols-2 gap-4 text-xs md:grid-cols-4">
-              <div>
-                <span className="font-medium">Total Devices:</span>
-                <div>{data.devices.length}</div>
-              </div>
-              <div>
-                <span className="font-medium">With Telemetry:</span>
-                <div>{data.devices.filter(d => d.last_updated).length}</div>
-              </div>
-              <div>
-                <span className="font-medium">With Location:</span>
-                <div>{data.devices.filter(d => d.latitude && d.longitude).length}</div>
-              </div>
-              <div>
-                <span className="font-medium">Active Alerts:</span>
-                <div>{data.devices.filter(hasDeviceAlerts).length}</div>
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Device ID', 'Name', 'Type', 'Status', 'Vehicle', 'Last Update', 'Telemetry', 'Actions'].map((header, index) => (
-                  <th key={index} className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
-                    {header}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {tableRows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
-                    {loading ? 'Loading devices...' : 'No devices found matching the current filters.'}
-                  </td>
-                </tr>
-              ) : (
-                tableRows.map((row) => (
-                  <tr key={row.device_id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 font-mono text-sm">{row.device_id}</td>
-                    <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                      {row.device_name || `Device ${row.device_id}`}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{row.device_type}</td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs rounded-full ${
-                        getDeviceStatusColor(data.devices.find(d => d.device_id === row.device_id))
-                      }`}>
-                        {row.status}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{row.vehicle_assignment}</td>
-                    <td className="px-6 py-4 text-sm text-gray-500">{row.last_updated}</td>
-                    <td className="px-6 py-4 text-sm">
-                      <div className="flex items-center gap-2">
-                        {row.has_telemetry ? (
-                          <>
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                            <span className="text-green-600">Available</span>
-                          </>
-                        ) : (
-                          <>
-                            <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                            <span className="text-yellow-600">No Data</span>
-                          </>
-                        )}
-                        {showDebugInfo && (
-                          <span className="text-xs text-gray-500">({row.telemetry_count})</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-sm">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => onViewDevice && onViewDevice(row.device_id)}
-                          className="text-blue-600 hover:text-blue-800"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        {showDebugInfo && (
-                          <button
-                            onClick={() => handleTestTelemetryFetch(row.device_id)}
-                            className="text-green-600 hover:text-green-800"
-                            title="Test Telemetry"
-                          >
-                            <Bug className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="p-6 mx-auto space-y-6 max-w-7xl">
-      {/* Header with Stats */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
-        <div className="p-4 bg-white rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total Devices</p>
-              <p className="text-2xl font-bold text-blue-600">{data.devices.length}</p>
-            </div>
-            <Shield className="w-8 h-8 text-blue-600" />
-          </div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Active</p>
-              <p className="text-2xl font-bold text-green-600">
-                {data.devices.filter(d => d.status === 'Active').length}
-              </p>
-            </div>
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">With Alerts</p>
-              <p className="text-2xl font-bold text-red-600">
-                {data.devices.filter(hasDeviceAlerts).length}
-              </p>
-            </div>
-            <AlertTriangle className="w-8 h-8 text-red-600" />
-          </div>
-        </div>
-        
-        <div className="p-4 bg-white rounded-lg shadow-md">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Unassigned</p>
-              <p className="text-2xl font-bold text-yellow-600">
-                {data.devices.filter(d => !d.vehicle_id).length}
-              </p>
-            </div>
-            <Shield className="w-8 h-8 text-yellow-600" />
-          </div>
-        </div>
-      </div>
-
-      {/* Search and Filter Controls */}
-      <div className="p-4 bg-white rounded-lg shadow-md">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex gap-4">
-            <div className="relative">
-              <Search className="absolute w-4 h-4 text-gray-400 left-3 top-3" />
-              <input
-                type="text"
-                placeholder="Search devices..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="py-2 pl-10 pr-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div className="relative">
-              <Filter className="absolute w-4 h-4 text-gray-400 left-3 top-3" />
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="py-2 pl-10 pr-8 bg-white border border-gray-300 rounded-lg appearance-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="all">All Devices</option>
-                <option value="active">Active Only</option>
-                <option value="inactive">Inactive Only</option>
-                <option value="alerts">With Alerts</option>
-                <option value="unassigned">Unassigned</option>
-              </select>
-            </div>
-          </div>
-          
-          <div className="text-sm text-gray-500">
-            Showing {filteredDevices.length} of {data.devices.length} devices
-          </div>
-        </div>
-      </div>
-
-      {/* Device Data Table */}
-      <DeviceDataTable />
-      
-      {/* Device Cards Grid for Real-time Monitoring */}
-      <div className="p-6 bg-white rounded-lg shadow-md">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className="text-lg font-semibold">Device Real-time Status</h3>
-            <p className="text-sm text-gray-600">Monitor your devices with live data updates</p>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-500">
-              {data.devices.filter(d => d.status === 'Active').length} of {data.devices.length} devices online
-            </span>
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm text-green-600">Live Updates</span>
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredDevices.map((device) => (
-            <DeviceCard key={device.device_id} device={device} />
-          ))}
-        </div>
-        
-        {filteredDevices.length === 0 && (
-          <div className="py-12 text-center text-gray-500">
-            <Shield className="w-16 h-16 mx-auto mb-4 text-gray-300" />
-            <h3 className="mb-2 text-lg font-medium text-gray-900">No Devices Found</h3>
-            <p className="text-gray-600">
-              {data.devices.length === 0 
-                ? 'Devices will appear here once they\'re detected by the system'
-                : 'No devices match the current search and filter criteria'}
-            </p>
-            {searchTerm || filterStatus !== 'all' ? (
-              <button
-                onClick={() => {
-                  setSearchTerm('');
-                  setFilterStatus('all');
-                }}
-                className="px-4 py-2 mt-4 text-sm text-white bg-blue-600 rounded hover:bg-blue-700"
-              >
-                Clear Filters
-              </button>
-            ) : null}
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 };

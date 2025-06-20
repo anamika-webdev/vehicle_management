@@ -7,7 +7,6 @@ import LoginScreen from '../auth/LoginScreen';
 import Header from '../layout/Header';
 import Navigation from '../layout/Navigation';
 import Overview from './Overview';
-import VehiclesPage from '../vehicles/VehiclesPage';
 import VehicleDetailsPage from '../vehicles/VehicleDetailsPage';
 import DevicesPage from '../devices/DevicesPage';
 import DeviceDetailsPage from '../devices/DeviceDetailsPage';
@@ -73,14 +72,7 @@ const Dashboard = () => {
         return <LeafletLiveMapPage />;
       case 'assign':
         return <DeviceAssignment />;
-      case 'vehicles':
-        return (
-          <VehiclesPage 
-            onViewVehicle={handleViewVehicle}
-            onEnhancedTracking={handleApiTracking}
-          />
-        );
-      case 'error-diagnostic':
+            case 'error-diagnostic':
         return <ErrorDiagnostic />;
       case 'route-tracker':
         return (

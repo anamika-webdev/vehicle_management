@@ -40,14 +40,9 @@ const Navigation = ({ activeTab, setActiveTab }) => {
 
   const navigationItems = [
     { id: 'overview', label: 'Overview', icon: Shield },
-    { id: 'live-map', label: 'Live Map', icon: MapPin },
-    { id: 'route-tracker', label: 'Route Tracker', icon: RouteIcon }, // Use RouteIcon instead of Navigation
     { id: 'assign', label: 'Assign Devices', icon: Link },
-    { id: 'vehicles', label: 'My Vehicles', icon: Car },
     { id: 'devices', label: 'My Devices', icon: Shield },
     { id: 'alarms', label: 'Alarms', icon: Bell },
-    { id: 'diagnostics', label: 'Diagnostics', icon: Settings },
-    { id: 'error-diagnostic', label: 'Error Diagnostic', icon: Settings }
   ];
 
   const unresolvedAlarmsCount = getAlarmsCount();

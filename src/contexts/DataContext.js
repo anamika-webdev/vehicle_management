@@ -1,4 +1,4 @@
-// Stable DataContext.js - Fixed infinite re-rendering with 30-second refresh only
+// FIXED DataContext.js - Eliminates infinite re-rendering and continuous loading
 // src/contexts/DataContext.js
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
@@ -33,20 +33,27 @@ export const DataProvider = ({ children }) => {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   
-  // Use refs to prevent infinite loops
+  // Use refs to prevent infinite loops - CRITICAL FIX
   const refreshIntervalRef = useRef(null);
   const isInitializedRef = useRef(false);
   const isFetchingRef = useRef(false);
+  const mountedRef = useRef(true); // Track if component is mounted
 
   // ===========================================
-  // STABLE DATA FETCHING - MEMOIZED
+  // STABLE DATA FETCHING - FIXED DEPENDENCIES
   // ===========================================
 
   const fetchData = useCallback(async (silent = false) => {
-    // Prevent concurrent fetches
+    // Prevent concurrent fetches - CRITICAL FIX
     if (isFetchingRef.current) {
       console.log('📊 Fetch already in progress, skipping...');
-      return;
+      return { success: false, reason: 'fetch_in_progress' };
+    }
+
+    // Check if component is still mounted
+    if (!mountedRef.current) {
+      console.log('📊 Component unmounted, skipping fetch...');
+      return { success: false, reason: 'component_unmounted' };
     }
 
     isFetchingRef.current = true;
@@ -78,77 +85,50 @@ export const DataProvider = ({ children }) => {
         apiService.getManagerAlarms(0, 50)
       ]);
 
+      // Check if component is still mounted before updating state
+      if (!mountedRef.current) {
+        console.log('📊 Component unmounted during fetch, aborting...');
+        return { success: false, reason: 'component_unmounted_during_fetch' };
+      }
+
       // Process results
       const vehicles = vehiclesResponse.status === 'fulfilled' && vehiclesResponse.value.success ? 
         vehiclesResponse.value.data : [];
       const devices = devicesResponse.status === 'fulfilled' && devicesResponse.value.success ? 
         devicesResponse.value.data : [];
-      const alerts = alarmsResponse.status === 'fulfilled' && alarmsResponse.value.success ? 
+      const alerts = alarmsResponse.status === 'fulfilled' && alarmsResponse.value.success ?
         alarmsResponse.value.data : [];
 
-      console.log('📊 Data fetch results:', {
+      // Count devices with telemetry data for success message
+      const devicesWithTelemetry = devices.filter(device => 
+        device.last_updated && 
+        device.latitude !== null && 
+        device.longitude !== null
+      );
+
+      // Update state atomically - CRITICAL FIX
+      setData(prevData => ({
+        vehicles: vehicles,
+        devices: devices,
+        alerts: alerts,
+        alarms: alerts, // Keep compatibility
+        locations: devices.filter(d => d.latitude && d.longitude).map(d => ({
+          device_id: d.device_id,
+          vehicle_id: d.vehicle_id,
+          latitude: d.latitude,
+          longitude: d.longitude,
+          timestamp: d.last_updated
+        }))
+      }));
+
+      setConnectionStatus('connected');
+      setLastUpdate(new Date().toISOString());
+
+      console.log('✅ Data fetch completed:', {
         vehicles: vehicles.length,
         devices: devices.length,
+        devicesWithTelemetry: devicesWithTelemetry.length,
         alerts: alerts.length,
-        vehiclesSuccess: vehiclesResponse.status === 'fulfilled',
-        devicesSuccess: devicesResponse.status === 'fulfilled',
-        alarmsSuccess: alarmsResponse.status === 'fulfilled'
-      });
-
-      // For devices, try to get telemetry but don't let it fail the whole fetch
-      let devicesWithTelemetry = devices;
-      
-      if (devices.length > 0) {
-        console.log('📊 Fetching telemetry for devices...');
-        
-        try {
-          devicesWithTelemetry = await Promise.all(
-            devices.map(async (device) => {
-              try {
-                const telemetryResponse = await apiService.getLatestDeviceTelemetry(device.device_id);
-                return apiService.mergeDeviceWithTelemetry(device, telemetryResponse);
-              } catch (telemetryError) {
-                console.warn(`⚠️ Telemetry failed for device ${device.device_id}:`, telemetryError.message);
-                return {
-                  ...device,
-                  has_telemetry: false,
-                  telemetry_status: 'fetch_error',
-                  telemetry_error: telemetryError.message
-                };
-              }
-            })
-          );
-          
-          const devicesWithTelemetryCount = devicesWithTelemetry.filter(d => d.has_telemetry).length;
-          console.log(`📊 Telemetry fetched for ${devicesWithTelemetryCount}/${devices.length} devices`);
-        } catch (telemetryError) {
-          console.warn('⚠️ Telemetry fetch failed, using devices without telemetry:', telemetryError.message);
-          devicesWithTelemetry = devices.map(device => ({
-            ...device,
-            has_telemetry: false,
-            telemetry_status: 'batch_error'
-          }));
-        }
-      }
-
-      // Update state ONCE
-      const newData = {
-        vehicles: vehicles,
-        devices: devicesWithTelemetry,
-        alerts: alerts,
-        alarms: alerts, // Keep for compatibility
-        locations: devicesWithTelemetry.filter(d => d.latitude && d.longitude)
-      };
-
-      setData(newData);
-      setLastUpdate(new Date());
-      setConnectionStatus('connected');
-      
-      console.log('✅ Data fetch completed successfully:', {
-        totalVehicles: vehicles.length,
-        totalDevices: devicesWithTelemetry.length,
-        devicesWithTelemetry: devicesWithTelemetry.filter(d => d.has_telemetry).length,
-        totalAlerts: alerts.length,
         timestamp: new Date().toISOString()
       });
 
@@ -158,31 +138,42 @@ export const DataProvider = ({ children }) => {
         isInitializedRef.current = true;
       }
 
+      return { success: true, data: { vehicles, devices, alerts } };
+
     } catch (error) {
       console.error('❌ Failed to fetch data:', error);
-      setError(error.message);
-      setConnectionStatus('disconnected');
       
-      if (!silent) {
-        showError('Data Fetch Failed', `Could not load data: ${error.message}`);
+      // Only update state if component is still mounted
+      if (mountedRef.current) {
+        setError(error.message);
+        setConnectionStatus('disconnected');
+        
+        if (!silent) {
+          showError('Data Fetch Failed', `Could not load data: ${error.message}`);
+        }
       }
+
+      return { success: false, error: error.message };
     } finally {
-      setLoading(false);
+      // Only update loading state if component is still mounted
+      if (mountedRef.current) {
+        setLoading(false);
+      }
       isFetchingRef.current = false;
     }
-  }, []); // STABLE: No dependencies that change
+  }, [showSuccess, showError]); // FIXED: Only include stable dependencies
 
   // ===========================================
-  // MANUAL REFRESH FUNCTION
+  // MANUAL REFRESH FUNCTION - STABLE
   // ===========================================
 
   const forceRefresh = useCallback(async () => {
     console.log('🔄 Manual refresh triggered');
-    await fetchData(false); // Not silent, show loading
+    return await fetchData(false); // Not silent, show loading
   }, [fetchData]);
 
   // ===========================================
-  // INITIALIZATION EFFECT - STABLE
+  // INITIALIZATION EFFECT - FIXED
   // ===========================================
 
   useEffect(() => {
@@ -191,8 +182,9 @@ export const DataProvider = ({ children }) => {
     if (isLoggedIn && currentUser) {
       console.log('✅ User is logged in, initializing data...');
       
-      // Clear any existing interval
+      // Clear any existing interval - CRITICAL FIX
       if (refreshIntervalRef.current) {
+        console.log('🧹 Clearing existing interval...');
         clearInterval(refreshIntervalRef.current);
         refreshIntervalRef.current = null;
       }
@@ -200,13 +192,13 @@ export const DataProvider = ({ children }) => {
       // Initial data fetch
       fetchData(false);
 
-      // Set up 30-second refresh interval
+      // Set up 30-second refresh interval - CRITICAL FIX
       refreshIntervalRef.current = setInterval(() => {
         console.log('🔄 30-second scheduled refresh...');
         fetchData(true); // Silent refresh
       }, 30000); // Exactly 30 seconds
 
-      console.log('⏰ 30-second refresh interval started');
+      console.log('⏰ 30-second refresh interval started with ID:', refreshIntervalRef.current);
 
     } else if (!isLoggedIn) {
       console.log('🔒 User logged out, clearing data and intervals...');
@@ -232,26 +224,62 @@ export const DataProvider = ({ children }) => {
       isFetchingRef.current = false;
     }
 
-    // Cleanup function
+    // Cleanup function - CRITICAL FIX
     return () => {
+      if (refreshIntervalRef.current) {
+        console.log('🧹 Cleaning up interval on effect cleanup...');
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    };
+  }, [isLoggedIn, currentUser, fetchData]); // FIXED: Add fetchData to dependencies
+
+  // ===========================================
+  // COMPONENT CLEANUP ON UNMOUNT - NEW
+  // ===========================================
+
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    return () => {
+      console.log('🧹 DataContext unmounting, cleaning up...');
+      mountedRef.current = false;
+      
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
         refreshIntervalRef.current = null;
       }
     };
-  }, [isLoggedIn, currentUser]); // ONLY depend on login state
-
-  // ===========================================
-  // CLEANUP ON UNMOUNT
-  // ===========================================
-
-  useEffect(() => {
-    return () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
   }, []);
+
+  // ===========================================
+  // UTILITY FUNCTIONS - STABLE
+  // ===========================================
+
+  const getDevicesByVehicle = useCallback((vehicleId) => {
+    return data.devices.filter(device => device.vehicle_id === vehicleId);
+  }, [data.devices]);
+
+  const getActiveDevices = useCallback(() => {
+    return data.devices.filter(device => device.status === 'Active');
+  }, [data.devices]);
+
+  const getDevicesWithTelemetry = useCallback(() => {
+    return data.devices.filter(device => 
+      device.last_updated && 
+      device.latitude !== null && 
+      device.longitude !== null
+    );
+  }, [data.devices]);
+
+  const getDevicesWithLocation = useCallback(() => {
+    return data.devices.filter(device => device.latitude && device.longitude);
+  }, [data.devices]);
+
+  const getRecentAlerts = useCallback((hours = 24) => {
+    const cutoff = new Date(Date.now() - (hours * 60 * 60 * 1000));
+    return data.alerts.filter(alert => new Date(alert.timestamp) > cutoff);
+  }, [data.alerts]);
 
   // ===========================================
   // VEHICLE OPERATIONS - STABLE
@@ -294,11 +322,12 @@ export const DataProvider = ({ children }) => {
         setData(prev => ({
           ...prev,
           vehicles: prev.vehicles.map(v => 
-            v.vehicle_id === vehicleId ? { ...v, ...updates, updated_at: new Date().toISOString() } : v
+            v.vehicle_id === vehicleId ? { ...v, ...updates } : v
           )
         }));
         
-        console.log('✅ Vehicle updated successfully');
+        // Refresh data from API
+        await fetchData(true);
         showSuccess('Vehicle Updated', 'Vehicle has been updated successfully');
         return response;
       }
@@ -311,7 +340,7 @@ export const DataProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [showSuccess, showError]);
+  }, [fetchData, showSuccess, showError]);
 
   const deleteVehicle = useCallback(async (vehicleId) => {
     try {
@@ -327,7 +356,6 @@ export const DataProvider = ({ children }) => {
           vehicles: prev.vehicles.filter(v => v.vehicle_id !== vehicleId)
         }));
         
-        console.log('✅ Vehicle deleted successfully');
         showSuccess('Vehicle Deleted', 'Vehicle has been deleted successfully');
         return response;
       }
@@ -355,7 +383,6 @@ export const DataProvider = ({ children }) => {
       
       if (response.success) {
         await fetchData(true);
-        console.log('✅ Device created successfully');
         showSuccess('Device Created', 'Device has been created successfully');
         return response;
       }
@@ -381,11 +408,11 @@ export const DataProvider = ({ children }) => {
         setData(prev => ({
           ...prev,
           devices: prev.devices.map(d => 
-            d.device_id === deviceId ? { ...d, ...updates, updated_at: new Date().toISOString() } : d
+            d.device_id === deviceId ? { ...d, ...updates } : d
           )
         }));
         
-        console.log('✅ Device updated successfully');
+        await fetchData(true);
         showSuccess('Device Updated', 'Device has been updated successfully');
         return response;
       }
@@ -398,7 +425,7 @@ export const DataProvider = ({ children }) => {
     } finally {
       setLoading(false);
     }
-  }, [showSuccess, showError]);
+  }, [fetchData, showSuccess, showError]);
 
   const deleteDevice = useCallback(async (deviceId) => {
     try {
@@ -413,7 +440,6 @@ export const DataProvider = ({ children }) => {
           devices: prev.devices.filter(d => d.device_id !== deviceId)
         }));
         
-        console.log('✅ Device deleted successfully');
         showSuccess('Device Deleted', 'Device has been deleted successfully');
         return response;
       }
@@ -429,37 +455,15 @@ export const DataProvider = ({ children }) => {
   }, [showSuccess, showError]);
 
   // ===========================================
-  // UTILITY METHODS - STABLE
+  // STATS GETTER - STABLE
   // ===========================================
 
-  const getDevicesByVehicle = useCallback((vehicleId) => {
-    return data.devices.filter(device => device.vehicle_id === vehicleId);
-  }, [data.devices]);
-
-  const getActiveDevices = useCallback(() => {
-    return data.devices.filter(device => device.status === 'Active');
-  }, [data.devices]);
-
-  const getDevicesWithTelemetry = useCallback(() => {
-    return data.devices.filter(device => device.has_telemetry);
-  }, [data.devices]);
-
-  const getDevicesWithLocation = useCallback(() => {
-    return data.devices.filter(device => device.latitude && device.longitude);
-  }, [data.devices]);
-
-  const getRecentAlerts = useCallback((hours = 24) => {
-    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
-    return data.alerts.filter(alert => new Date(alert.created_at) > cutoff);
-  }, [data.alerts]);
-
-  // Get statistics for dashboard
   const getStats = useCallback(() => {
     const activeDevices = getActiveDevices();
-    const devicesWithTelemetry = getDevicesWithTelemetry();
     const devicesWithLocation = getDevicesWithLocation();
+    const devicesWithTelemetry = getDevicesWithTelemetry();
     const recentAlerts = getRecentAlerts();
-    
+
     return {
       totalVehicles: data.vehicles.length,
       totalDevices: data.devices.length,

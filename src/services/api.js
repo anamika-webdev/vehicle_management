@@ -1,199 +1,80 @@
-// src/services/api.js - Fixed to use environment configuration
+// FIXED API SERVICE - Complete implementation with proper exports
+// src/services/api.js
 
 import { config } from '../config/apiConfig';
 
 class ApiService {
   constructor() {
-    // Use environment configuration instead of hardcoded URL
     this.baseURL = config.API_BASE_URL;
-    this.token = null;
-    this.refreshToken = null;
+    this.token = localStorage.getItem('authToken') || null;
     this.lastSuccessfulEndpoint = null;
-    this.connectionStartTime = Date.now();
-    
-    console.log('🔧 API Service initialized with backend:', this.baseURL);
-    console.log('🔧 Environment:', process.env.NODE_ENV);
-    console.log('🔧 Using proxy:', process.env.REACT_APP_USE_PROXY);
-  }
-
-  // Initialize token from localStorage
-  initializeToken() {
-    try {
-      const token = localStorage.getItem('authToken');
-      const refreshToken = localStorage.getItem('refreshToken');
-      
-      if (token) {
-        this.token = token;
-        console.log('🔑 Token restored from localStorage');
-      }
-      
-      if (refreshToken) {
-        this.refreshToken = refreshToken;
-        console.log('🔄 Refresh token restored from localStorage');
-      }
-    } catch (error) {
-      console.warn('⚠️ Error initializing tokens:', error);
-    }
   }
 
   // ===========================================
-  // CORE REQUEST HANDLER - ENHANCED
+  // AUTHENTICATION METHODS
+  // ===========================================
+
+  setToken(token) {
+    this.token = token;
+    if (token) {
+      localStorage.setItem('authToken', token);
+    } else {
+      localStorage.removeItem('authToken');
+    }
+  }
+
+  getToken() {
+    return this.token || localStorage.getItem('authToken');
+  }
+
+  // ===========================================
+  // HTTP REQUEST WRAPPER
   // ===========================================
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
-    const config = {
+    const token = this.getToken();
+
+    const defaultOptions = {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        ...(this.token && { Authorization: `Bearer ${this.token}` }),
-        ...options.headers,
-      },
+        'Accept': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` })
+      }
+    };
+
+    const finalOptions = {
+      ...defaultOptions,
       ...options,
+      headers: {
+        ...defaultOptions.headers,
+        ...options.headers
+      }
     };
 
     try {
-      console.log(`📡 API Request: ${options.method || 'GET'} ${endpoint}`);
-      console.log(`📡 Full URL: ${url}`);
+      console.log(`🌐 API Request: ${finalOptions.method} ${url}`);
       
-      const response = await fetch(url, config);
+      const response = await fetch(url, finalOptions);
+      
       console.log(`📡 Response: ${response.status} ${response.statusText}`);
-      
+
       if (!response.ok) {
-        let errorMessage;
-        let errorData = null;
-        
-        try {
-          const responseText = await response.text();
-          
-          if (responseText) {
-            try {
-              errorData = JSON.parse(responseText);
-              console.log('📄 Error response data:', errorData);
-              
-              // Extract meaningful error message
-              if (errorData.message) {
-                errorMessage = errorData.message;
-              } else if (errorData.error) {
-                if (typeof errorData.error === 'string') {
-                  errorMessage = errorData.error;
-                } else if (typeof errorData.error === 'object' && errorData.error.message) {
-                  errorMessage = errorData.error.message;
-                } else if (typeof errorData.error === 'object') {
-                  errorMessage = JSON.stringify(errorData.error);
-                } else {
-                  errorMessage = 'Unknown error format';
-                }
-              } else if (errorData.detail) {
-                errorMessage = errorData.detail;
-              } else {
-                errorMessage = `HTTP ${response.status} - ${response.statusText}`;
-              }
-            } catch (parseError) {
-              console.warn('Could not parse error response as JSON:', parseError);
-              errorMessage = responseText || `HTTP ${response.status} - ${response.statusText}`;
-            }
-          } else {
-            errorMessage = `HTTP ${response.status} - ${response.statusText}`;
-          }
-        } catch (readError) {
-          console.warn('Could not read error response:', readError);
-          errorMessage = `HTTP ${response.status} - ${response.statusText}`;
-        }
-        
-        // Handle specific status codes
-        if (response.status === 401) {
-          this.handleAuthError();
-          throw new Error('Session expired. Please login again.');
-        } else if (response.status === 500) {
-          console.error('🚨 Server Error 500:', errorMessage);
-          throw new Error(`Server error: ${errorMessage}`);
-        } else if (response.status === 404) {
-          throw new Error(`Not found: ${errorMessage}`);
-        } else if (response.status === 403) {
-          throw new Error(`Access denied: ${errorMessage}`);
-        }
-        
-        throw new Error(errorMessage);
+        const errorText = await response.text();
+        console.error(`❌ API Error: ${response.status} - ${errorText}`);
+        throw new Error(`API Error: ${response.status} - ${response.statusText}`);
       }
-      
+
       const data = await response.json();
-      console.log(`✅ Success response from ${endpoint}:`, data);
-      
-      // Update last successful endpoint
+      console.log(`✅ Response Data:`, data);
+
       this.lastSuccessfulEndpoint = endpoint;
-      
       return data;
-      
+
     } catch (error) {
-      console.error(`❌ Request failed for ${endpoint}:`, error.message);
-      
-      // Handle network errors specifically
-      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-        throw new Error('Network error: Cannot connect to server. Please check your internet connection and try again.');
-      }
-      
+      console.error(`❌ Request failed for ${url}:`, error);
       throw error;
-    }
-  }
-
-  // Handle authentication errors
-  handleAuthError() {
-    console.warn('🔐 Authentication error - clearing tokens');
-    this.token = null;
-    this.refreshToken = null;
-    localStorage.removeItem('authToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('userData');
-  }
-
-  // ===========================================
-  // AUTHENTICATION ENDPOINTS
-  // ===========================================
-
-  async login(email, password) {
-    try {
-      console.log('🔐 Attempting login via API...');
-      const response = await this.request('/auth/v1/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-
-      if (response.token) {
-        this.token = response.token;
-        if (response.refreshToken) {
-          this.refreshToken = response.refreshToken;
-        }
-        console.log('✅ Login successful, token stored');
-      }
-
-      return response;
-    } catch (error) {
-      console.error('❌ Login failed:', error);
-      throw error;
-    }
-  }
-
-  async register(userData) {
-    try {
-      console.log('📝 Attempting registration via API...');
-      const response = await this.request('/auth/v1/register', {
-        method: 'POST',
-        body: JSON.stringify(userData)
-      });
-      return response;
-    } catch (error) {
-      console.error('❌ Registration failed:', error);
-      throw error;
-    }
-  }
-
-  async logout() {
-    try {
-      await this.request('/auth/v1/logout', { method: 'POST' });
-    } catch (error) {
-      console.warn('⚠️ Logout API call failed (endpoint may not exist):', error.message);
-    } finally {
-      this.handleAuthError();
     }
   }
 
@@ -203,20 +84,21 @@ class ApiService {
 
   async healthCheck() {
     try {
-      console.log('🏥 Performing health check using vehicles endpoint...');
-      // Use vehicles endpoint instead of /health since it's working
-      const response = await this.request('/vehicle/v1/all?page=0&size=1');
+      console.log('🏥 Performing health check...');
+      
+      // Try the main health endpoint first
+      const response = await this.request('/health');
       
       return {
-        status: response && response.success ? 'healthy' : 'degraded',
-        message: 'API is responsive via vehicles endpoint',
+        status: response ? 'healthy' : 'degraded',
+        message: 'API is responsive via health endpoint',
         timestamp: new Date().toISOString(),
         endpoint: this.baseURL
       };
     } catch (error) {
       console.warn('⚠️ Health check failed:', error.message);
       
-      // Try basic connectivity test
+      // Try basic connectivity test with vehicles endpoint
       try {
         const basicResponse = await fetch(`${this.baseURL}/vehicle/v1/all?page=0&size=1`, {
           method: 'GET',
@@ -248,7 +130,7 @@ class ApiService {
   }
 
   // ===========================================
-  // VEHICLE ENDPOINTS
+  // VEHICLE ENDPOINTS - FIXED
   // ===========================================
 
   async getVehicles(page = 0, size = 20, sortBy = 'vehicleId', direction = 'asc') {
@@ -257,15 +139,23 @@ class ApiService {
       const endpoint = `/vehicle/v1/all?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
       const response = await this.request(endpoint);
       
-      if (response.data && Array.isArray(response.data)) {
+      if (response && response.data && Array.isArray(response.data)) {
         const transformedData = response.data.map(vehicle => ({
-          ...vehicle,
-          id: vehicle.vehicleId || vehicle.id,
-          name: vehicle.vehicleName || vehicle.name,
-          type: vehicle.vehicleType || vehicle.type,
-          model: vehicle.vehicleModel || vehicle.model,
-          status: vehicle.status || 'Active'
+          vehicle_id: vehicle.vehicleId || vehicle.vehicle_id || vehicle.id,
+          vehicle_name: vehicle.vehicleName || vehicle.vehicle_name || vehicle.name,
+          vehicle_number: vehicle.vehicleNumber || vehicle.vehicle_number || vehicle.license_plate,
+          vehicle_type: vehicle.vehicleType || vehicle.vehicle_type || vehicle.type,
+          vehicle_model: vehicle.vehicleModel || vehicle.vehicle_model || vehicle.model,
+          status: vehicle.status || 'Active',
+          current_latitude: vehicle.currentLatitude || vehicle.current_latitude || vehicle.latitude,
+          current_longitude: vehicle.currentLongitude || vehicle.current_longitude || vehicle.longitude,
+          current_speed: vehicle.currentSpeed || vehicle.current_speed || vehicle.speed || 0,
+          last_updated: vehicle.lastUpdated || vehicle.last_updated || vehicle.updatedAt,
+          created_at: vehicle.createdAt || vehicle.created_at,
+          updated_at: vehicle.updatedAt || vehicle.updated_at
         }));
+        
+        console.log(`✅ Successfully fetched ${transformedData.length} vehicles`);
         
         return {
           success: true,
@@ -276,34 +166,105 @@ class ApiService {
         };
       }
       
+      console.log('📝 No vehicles found in response');
       return {
-        success: false,
+        success: true,
         data: [],
         message: 'No vehicles found'
       };
       
     } catch (error) {
       console.error('❌ Failed to fetch vehicles:', error);
-      throw error;
+      return {
+        success: false,
+        data: [],
+        error: error.message,
+        message: `Could not fetch vehicles: ${error.message}`
+      };
     }
   }
 
-  async registerVehicle(vehicleData) {
+  async getVehicleById(vehicleId) {
     try {
-      console.log('📝 Registering new vehicle...');
+      console.log(`🚗 Fetching vehicle by ID: ${vehicleId}`);
+      const endpoint = `/vehicle/v1/${vehicleId}`;
+      const response = await this.request(endpoint);
+      
+      return {
+        success: true,
+        data: Array.isArray(response.data) ? response.data : [response.data]
+      };
+    } catch (error) {
+      console.error(`❌ Failed to fetch vehicle ${vehicleId}:`, error);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  async createVehicle(vehicleData) {
+    try {
+      console.log('📝 Creating new vehicle...');
       const response = await this.request('/vehicle/v1/register', {
         method: 'POST',
         body: JSON.stringify(vehicleData)
       });
-      return response;
+      return {
+        success: true,
+        data: response.data
+      };
     } catch (error) {
-      console.error('❌ Vehicle registration failed:', error);
-      throw error;
+      console.error('❌ Vehicle creation failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async updateVehicle(vehicleId, updateData) {
+    try {
+      console.log(`🚗 Updating vehicle ${vehicleId}...`);
+      const response = await this.request(`/vehicle/v1/update/${vehicleId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updateData)
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Vehicle update failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async deleteVehicle(vehicleId) {
+    try {
+      console.log(`🚗 Deleting vehicle ${vehicleId}...`);
+      const response = await this.request(`/vehicle/v1/delete/${vehicleId}`, {
+        method: 'DELETE'
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Vehicle deletion failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
   // ===========================================
-  // DEVICE ENDPOINTS
+  // DEVICE ENDPOINTS - FIXED
   // ===========================================
 
   async getDevices(page = 0, size = 20) {
@@ -312,131 +273,108 @@ class ApiService {
       const endpoint = `/device/v1/all?page=${page}&size=${size}`;
       const response = await this.request(endpoint);
       
-      if (response.data && Array.isArray(response.data)) {
+      if (response && response.data && Array.isArray(response.data)) {
+        const transformedData = response.data.map(device => ({
+          device_id: device.deviceId || device.device_id || device.id,
+          device_name: device.deviceName || device.device_name || device.name,
+          device_type: device.deviceType || device.device_type || device.type,
+          status: device.status || 'Active',
+          vehicle_id: device.vehicleId || device.vehicle_id,
+          latitude: device.latitude ? parseFloat(device.latitude) : null,
+          longitude: device.longitude ? parseFloat(device.longitude) : null,
+          last_updated: device.lastUpdated || device.last_updated || device.updatedAt,
+          created_at: device.createdAt || device.created_at,
+          updated_at: device.updatedAt || device.updated_at,
+          // Telemetry data
+          speed: device.speed ? parseFloat(device.speed) : null,
+          acceleration: device.acceleration ? parseFloat(device.acceleration) : null,
+          drowsiness: Boolean(device.drowsiness),
+          rash_driving: Boolean(device.rashDriving || device.rash_driving),
+          collision: Boolean(device.collision)
+        }));
+        
+        console.log(`✅ Successfully fetched ${transformedData.length} devices`);
+        
         return {
           success: true,
-          data: response.data,
-          totalElements: response.totalElements || response.data.length,
-          totalPages: response.totalPages || 1,
-          currentPage: response.number || 0
+          data: transformedData,
+          totalElements: response.totalElements || transformedData.length
         };
       }
       
       return {
-        success: false,
+        success: true,
         data: [],
         message: 'No devices found'
       };
       
     } catch (error) {
       console.error('❌ Failed to fetch devices:', error);
-      throw error;
-    }
-  }
-
-  // ===========================================
-  // ALARM ENDPOINTS
-  // ===========================================
-
-  async getManagerAlarms(page = 0, size = 20, sortBy = 'alarmId', direction = 'desc') {
-    try {
-      console.log('🚨 Fetching manager alarms from API...');
-      const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
-      const response = await this.request(endpoint);
-      
-      if (response.data && Array.isArray(response.data)) {
-        const transformedData = response.data.map(alarm => ({
-          alarm_id: alarm.alarmId || alarm.alarm_id,
-          device_id: alarm.deviceId || alarm.device_id,
-          alarm_type: alarm.alarmType || alarm.alarm_type || 'System Alert',
-          description: alarm.description || 'Alert detected',
-          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
-          acceleration: alarm.acceleration ? parseFloat(alarm.acceleration) : null,
-          drowsiness: Boolean(alarm.drowsiness),
-          rash_driving: Boolean(alarm.rashDriving || alarm.rash_driving),
-          collision: Boolean(alarm.collision),
-          severity: alarm.severity || 'medium',
-          status: alarm.status || 'active',
-          created_at: alarm.createdAt || alarm.created_at || new Date().toISOString()
-        }));
-        
-        console.log(`✅ Found ${transformedData.length} alarms`);
-        
-        return {
-          success: true,
-          data: transformedData,
-          totalElements: response.totalElements || transformedData.length,
-          message: `Found ${transformedData.length} alarms`
-        };
-      }
-      
-      return { success: true, data: [], message: 'No alarms found' };
-    } catch (error) {
-      console.error('❌ Failed to fetch manager alarms:', error);
-      return { success: false, data: [], error: error.message };
-    }
-  }
-
-  async getDeviceAlarms(deviceId, page = 0, size = 20, sortBy = 'deviceId', direction = 'desc') {
-    try {
-      console.log(`🚨 Fetching alarms for device ${deviceId} from API...`);
-      const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
-      const response = await this.request(endpoint);
-      
-      if (response.data && Array.isArray(response.data)) {
-        const transformedData = response.data.map(alarm => ({
-          alarm_id: alarm.alarmId || alarm.alarm_id,
-          device_id: alarm.deviceId || alarm.device_id,
-          alarm_type: alarm.alarmType || alarm.alarm_type || 'Device Alert',
-          description: alarm.description || 'Device alert detected',
-          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
-          severity: alarm.severity || 'medium',
-          status: alarm.status || 'active',
-          created_at: alarm.createdAt || alarm.created_at || new Date().toISOString()
-        }));
-        
-        return {
-          success: true,
-          data: transformedData,
-          message: `Found ${transformedData.length} device alarms`
-        };
-      }
-      
-      return { success: true, data: [], message: 'No device alarms found' };
-    } catch (error) {
-      console.error(`❌ Failed to fetch alarms for device ${deviceId}:`, error);
-      return { 
-        success: false, 
-        data: [], 
+      return {
+        success: false,
+        data: [],
         error: error.message,
-        message: `Could not fetch alarms for device ${deviceId}: ${error.message}`
+        message: `Could not fetch devices: ${error.message}`
       };
     }
   }
 
-  async createAlarm(alarmData) {
+  async createDevice(deviceData) {
     try {
-      console.log('🚨 Creating alarm via API...');
-      const response = await this.request('/alarm/v1/create', {
+      console.log('📱 Creating new device...');
+      const response = await this.request('/device/v1/register', {
         method: 'POST',
-        body: JSON.stringify({
-          deviceId: alarmData.device_id || alarmData.deviceId,
-          acceleration: alarmData.acceleration,
-          latitude: alarmData.latitude,
-          longitude: alarmData.longitude,
-          drowsiness: alarmData.drowsiness,
-          rashDriving: alarmData.rash_driving || alarmData.rashDriving,
-          collision: alarmData.collision,
-          alarmType: alarmData.alarm_type || alarmData.alarmType,
-          description: alarmData.description
-        })
+        body: JSON.stringify(deviceData)
       });
-      return response;
+      return {
+        success: true,
+        data: response.data
+      };
     } catch (error) {
-      console.error('❌ Failed to create alarm:', error);
-      throw error;
+      console.error('❌ Device creation failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async updateDevice(deviceId, updateData) {
+    try {
+      console.log(`📱 Updating device ${deviceId}...`);
+      const response = await this.request(`/device/v1/update/${deviceId}`, {
+        method: 'PUT',
+        body: JSON.stringify(updateData)
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Device update failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async deleteDevice(deviceId) {
+    try {
+      console.log(`📱 Deleting device ${deviceId}...`);
+      const response = await this.request(`/device/v1/delete/${deviceId}`, {
+        method: 'DELETE'
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Device deletion failed:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 
@@ -444,26 +382,25 @@ class ApiService {
   // TELEMETRY ENDPOINTS
   // ===========================================
 
-  async getDeviceTelemetry(deviceId, page = 0, size = 20) {
+  async getDeviceTelemetry(deviceId, page = 0, size = 10) {
+    const endpoints = [
+      `/device/v1/data/${deviceId}?direction=desc&page=${page}&size=${size}`,
+      `/device/v1/data/${deviceId}?direction=desc`,
+      `/deviceTelemetry/v1/device/${deviceId}?page=${page}&size=${size}`,
+      `/telemetry/v1/device/${deviceId}`
+    ];
+    
     try {
       console.log(`📊 Fetching telemetry for device ${deviceId}...`);
       
-      // Try multiple endpoints to find working telemetry data
-      const endpoints = [
-        `/device/v1/data/${deviceId}?direction=desc&size=${size}`,
-        `/device/v1/data/${deviceId}?page=${page}&size=${size}`,
-        `/deviceTelemetry/v1/device/${deviceId}?page=${page}&size=${size}`
-      ];
-      
       for (const endpoint of endpoints) {
         try {
+          console.log(`🔄 Trying endpoint: ${endpoint}`);
           const response = await this.request(endpoint);
           
-          if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+          if (response && response.data && Array.isArray(response.data) && response.data.length > 0) {
             const transformedData = response.data.map(item => ({
-              id: item.id || `temp_${Date.now()}_${Math.random()}`,
-              device_id: item.device_id || item.deviceId,
-              vehicle_id: item.vehicle_id || item.vehicleId,
+              device_id: deviceId,
               speed: item.speed ? parseFloat(item.speed) : null,
               latitude: item.latitude ? parseFloat(item.latitude) : null,
               longitude: item.longitude ? parseFloat(item.longitude) : null,
@@ -504,8 +441,138 @@ class ApiService {
       };
     }
   }
+
+  // ===========================================
+  // ALARM/ALERT ENDPOINTS
+  // ===========================================
+
+  async getManagerAlarms(page = 0, size = 50) {
+    try {
+      console.log('🚨 Fetching manager alarms...');
+      const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}`;
+      const response = await this.request(endpoint);
+      
+      if (response && response.data && Array.isArray(response.data)) {
+        const transformedData = response.data.map(alarm => ({
+          alert_id: alarm.alarmId || alarm.alert_id || alarm.id,
+          device_id: alarm.deviceId || alarm.device_id,
+          vehicle_id: alarm.vehicleId || alarm.vehicle_id,
+          alert_type: alarm.alarmType || alarm.alert_type || alarm.type,
+          severity: alarm.severity || 'medium',
+          message: alarm.message || alarm.description,
+          timestamp: alarm.timestamp || alarm.createdAt || new Date().toISOString(),
+          status: alarm.status || 'active',
+          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
+          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null
+        }));
+        
+        console.log(`✅ Successfully fetched ${transformedData.length} alarms`);
+        
+        return {
+          success: true,
+          data: transformedData
+        };
+      }
+      
+      return {
+        success: true,
+        data: [],
+        message: 'No alarms found'
+      };
+      
+    } catch (error) {
+      console.error('❌ Failed to fetch alarms:', error);
+      return {
+        success: false,
+        data: [],
+        error: error.message,
+        message: `Could not fetch alarms: ${error.message}`
+      };
+    }
+  }
+
+  async getDeviceAlarms(deviceId, page = 0, size = 10) {
+    try {
+      console.log(`🚨 Fetching alarms for device ${deviceId}...`);
+      const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}`;
+      const response = await this.request(endpoint);
+      
+      return {
+        success: true,
+        data: Array.isArray(response.data) ? response.data : []
+      };
+    } catch (error) {
+      console.error(`❌ Failed to fetch alarms for device ${deviceId}:`, error);
+      return {
+        success: false,
+        data: [],
+        error: error.message
+      };
+    }
+  }
+
+  // ===========================================
+  // AUTH ENDPOINTS
+  // ===========================================
+
+  async login(email, password) {
+    try {
+      console.log('🔐 Attempting login...');
+      const response = await this.request('/auth/v1/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      
+      if (response && response.data && response.data.token) {
+        this.setToken(response.data.token);
+        return {
+          success: true,
+          data: response.data,
+          user: response.data.user,
+          token: response.data.token
+        };
+      }
+      
+      return {
+        success: false,
+        message: 'Invalid login response'
+      };
+    } catch (error) {
+      console.error('❌ Login failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        message: `Login failed: ${error.message}`
+      };
+    }
+  }
+
+  async logout() {
+    try {
+      console.log('🔓 Logging out...');
+      this.setToken(null);
+      return {
+        success: true,
+        message: 'Logged out successfully'
+      };
+    } catch (error) {
+      console.error('❌ Logout failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
-// Create and export single instance
+// Create and export single instance - CRITICAL FIX
 const apiService = new ApiService();
+
+// Make sure all methods are bound to the instance
+Object.getOwnPropertyNames(ApiService.prototype).forEach(method => {
+  if (method !== 'constructor' && typeof apiService[method] === 'function') {
+    apiService[method] = apiService[method].bind(apiService);
+  }
+});
+
 export default apiService;
