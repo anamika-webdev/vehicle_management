@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import { hasDeviceAlerts } from '../../utils/helpers';
 import DeviceStatusCard from '../devices/DeviceStatusCard';
 

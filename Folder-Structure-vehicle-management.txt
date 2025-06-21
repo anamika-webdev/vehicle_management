@@ -1,0 +1,87 @@
+vehicle-management
+├── .env
+├── .gitignore
+├── package-lock.json
+├── package.json
+├── public
+│   ├── favicon.ico
+│   ├── index.html
+│   ├── logo.svg
+│   ├── logo192.png
+│   ├── logo512.png
+│   ├── manifest.json
+│   └── robots.txt
+├── src
+│   ├── App.css
+│   ├── App.js
+│   ├── App.test.js
+│   ├── components
+│   │   ├── alarms
+│   │   │   └── AlarmsPage.js
+│   │   ├── auth
+│   │   │   └── LoginScreen.js
+│   │   ├── common
+│   │   │   ├── DataTable.js
+│   │   │   ├── EnhancedComponents.js
+│   │   │   ├── ErrorBoundary .js
+│   │   │   ├── FormField.js
+│   │   │   ├── Modal.js
+│   │   │   ├── Notification.js
+│   │   │   └── SimpleErrorBoundary.js
+│   │   ├── dashboard
+│   │   │   ├── Dashboard.js
+│   │   │   ├── Overview.js
+│   │   │   ├── RealtimeMonitor.js
+│   │   │   └── StatCard.js
+│   │   ├── debug
+│   │   │   ├── ApiConnectionDiagnostic.js
+│   │   │   ├── ApiTestComponent.js
+│   │   │   ├── ContextTest.js
+│   │   │   ├── ImportCheck.js
+│   │   │   └── TelemetryDiagnostic.js
+│   │   ├── devices
+│   │   │   ├── DeviceAssignment.js
+│   │   │   ├── DeviceDetailsPage.js
+│   │   │   ├── DevicesPage.js
+│   │   │   └── DeviceStatusCard.js
+│   │   ├── diagnostics
+│   │   │   ├── ApiDiagnosticTool.js
+│   │   │   ├── DeviceDataDiagnostic.js
+│   │   │   └── ErrorDiagnostic.js
+│   │   ├── layout
+│   │   │   ├── DashboardLayout.js
+│   │   │   ├── Header.js
+│   │   │   └── Navigation.js
+│   │   ├── testing
+│   │   │   └── RouteTestPage.js
+│   │   ├── tracking
+│   │   │   ├── ApiOnlyEnhancedVehicleTrackingModal.js
+│   │   │   ├── ApiOnlyRouteTracker.js
+│   │   │   ├── EnhancedDeviceMap.js
+│   │   │   ├── LeafletLiveMapPage.js
+│   │   │   └── SimpleLeafletMap.js
+│   │   └── vehicles
+│   │       ├── VehicleDetailsPage.js
+│   │       ├── VehicleForm.js
+│   │       └── VehicleTrackingModal.js
+│   ├── config
+│   │   └── apiConfig.js
+│   ├── contexts
+│   │   ├── AuthContext.js
+│   │   ├── DataContext.js
+│   │   ├── NotificationContext.js
+│   │   └── WebSocketContext.js
+│   ├── hooks
+│   │   └── useRouteTracking.js
+│   ├── index.css
+│   ├── index.js
+│   ├── services
+│   │   ├── api.js
+│   │   └── enhancedRouteTrackingService.js
+│   ├── styles
+│   │   └── globals.css
+│   └── utils
+│       ├── constants.js
+│       └── helpers.js
+├── tailwind.config.js
+└── vercel.json

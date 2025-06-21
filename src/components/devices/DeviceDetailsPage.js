@@ -7,7 +7,7 @@ import {
   Wifi, Battery, Signal, Zap
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import { formatTime, formatDateTime, timeAgo } from '../../utils/helpers';
 import apiService from '../../services/api';
 

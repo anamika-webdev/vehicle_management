@@ -6,7 +6,7 @@ import {
   RefreshCw, Database, Maximize2, ZoomIn, ZoomOut 
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import apiService from '../../services/api';
 
 const ApiOnlyEnhancedVehicleTrackingModal = ({ isOpen, onClose, vehicle }) => {

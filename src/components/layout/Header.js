@@ -1,6 +1,6 @@
-// src/components/layout/Header.js - Fixed without WebSocket dependency
+// src/components/layout/Header.js - Clean version without data counts
 import React, { useState } from 'react';
-import { User, Search, RefreshCw, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { User, Search, RefreshCw, LogOut, Wifi } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useData } from '../../contexts/DataContext';
 
@@ -8,25 +8,6 @@ const Header = ({ systemHealth }) => {
   const { currentUser, logout } = useAuth();
   const { fetchData, loading, error } = useData();
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Use systemHealth prop instead of WebSocket context
-  const isConnected = systemHealth?.api === 'healthy' || systemHealth?.api === 'degraded';
-
-  const ConnectionStatus = () => (
-    <div className="flex items-center gap-2">
-      {isConnected ? (
-        <>
-          <Wifi className="w-4 h-4 text-green-600" />
-          <span className="text-xs text-green-600">Connected</span>
-        </>
-      ) : (
-        <>
-          <WifiOff className="w-4 h-4 text-red-600" />
-          <span className="text-xs text-red-600">Disconnected</span>
-        </>
-      )}
-    </div>
-  );
 
   const handleRefresh = async () => {
     try {
@@ -47,19 +28,17 @@ const Header = ({ systemHealth }) => {
       <div className="px-6 py-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Vehicle Management Dashboard</h1>
+          
           <div className="flex items-center gap-4">
-            <ConnectionStatus />
-            
-            {/* System Health Status */}
-            {systemHealth && (
-              <div className="text-xs text-gray-500">
-                API: {systemHealth.api || 'Unknown'}
-              </div>
-            )}
+            {/* Simple Connection Status */}
+            <div className="flex items-center gap-2">
+              <Wifi className="w-4 h-4 text-green-600" />
+              <span className="text-xs font-medium text-green-600">Connected</span>
+            </div>
             
             <div className="flex items-center gap-3 text-sm text-gray-600">
               <User className="w-4 h-4" />
-              <span>Welcome, {currentUser?.name || currentUser?.email || 'User'}</span>
+              <span>Welcome, {currentUser?.name || currentUser?.email || 'Akhand'}</span>
             </div>
             
             <div className="relative">

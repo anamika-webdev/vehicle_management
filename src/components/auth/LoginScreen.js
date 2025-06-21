@@ -3,7 +3,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import { Shield, Eye, EyeOff, RefreshCw } from 'lucide-react'; // Removed CheckCircle
 import apiService from '../../services/api';
 

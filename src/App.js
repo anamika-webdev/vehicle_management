@@ -1,9 +1,15 @@
-// src/App.js - Temporary fix with inline WebSocket provider
+// src/App.js - Simple update that keeps your existing structure
 import React, { useState, useCallback, useEffect, createContext, useContext } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
-import { NotificationProvider } from './contexts/NotificationContext';
+
+// Import the FIXED notification system that replaces the old one
+import { 
+  NotificationProvider, 
+  NotificationContainer, 
+  RealTimeConnectionPopup 
+} from './components/notifications/RealTimeNotificationSystem';
 
 // Import components with CORRECT paths based on your project structure
 import Dashboard from './components/dashboard/Dashboard';
@@ -102,37 +108,26 @@ class SimpleErrorBoundary extends React.Component {
 }
 
 function App() {
-  // Route tracking modal state - CRITICAL FOR TRACKING
-  const [showApiTracking, setShowApiTracking] = useState(false);
-  const [selectedTrackingVehicle, setSelectedTrackingVehicle] = useState(null);
-  
-  // System initialization state
   const [isInitialized, setIsInitialized] = useState(false);
   const [initError, setInitError] = useState(null);
   const [systemHealth, setSystemHealth] = useState({
-    api: 'checking',
+    api: 'unknown',
     auth: 'unknown'
   });
+  
+  // API-Only tracking modal state
+  const [showApiTracking, setShowApiTracking] = useState(false);
+  const [selectedTrackingVehicle, setSelectedTrackingVehicle] = useState(null);
 
-  // Enhanced tracking handler - MAIN TRACKING FUNCTION
+  // Enhanced tracking handlers
   const handleEnhancedTracking = useCallback((vehicle) => {
-    console.log('🚀 App: Enhanced tracking triggered for vehicle:', vehicle);
-    console.log('🚗 Vehicle data:', vehicle);
-    
-    if (!vehicle) {
-      console.error('❌ No vehicle provided for tracking');
-      return;
-    }
-
+    console.log('🚗 Opening enhanced tracking for vehicle:', vehicle);
     setSelectedTrackingVehicle(vehicle);
     setShowApiTracking(true);
-    
-    console.log('✅ Tracking modal should now open');
   }, []);
 
-  // Close tracking modal
   const handleCloseTracking = useCallback(() => {
-    console.log('🔒 Closing tracking modal');
+    console.log('🚗 Closing enhanced tracking modal');
     setShowApiTracking(false);
     setSelectedTrackingVehicle(null);
   }, []);
@@ -141,22 +136,15 @@ function App() {
   const initializeApp = useCallback(async () => {
     try {
       console.log('🚀 Initializing Vehicle Management Dashboard...');
-      console.log('🔧 API Base URL:', apiService.baseURL);
-      console.log('🌍 Environment:', process.env.NODE_ENV);
-
-      // Initialize API service
-      if (apiService.initializeToken) {
-        apiService.initializeToken();
-      }
       
       // Test API connection
       try {
-        const healthCheck = await apiService.healthCheck();
-        console.log('🏥 Health check result:', healthCheck);
+        const healthResponse = await apiService.testConnection();
+        console.log('🏥 API Health Check:', healthResponse);
         
         setSystemHealth({
-          api: healthCheck.status,
-          auth: apiService.getToken() ? 'authenticated' : 'unauthenticated'
+          api: healthResponse.success ? 'connected' : 'error',
+          auth: healthResponse.success ? 'authenticated' : 'unauthenticated'
         });
       } catch (healthError) {
         console.warn('⚠️ Health check failed:', healthError);
@@ -199,6 +187,7 @@ function App() {
 
   return (
     <AuthProvider>
+      {/* REPLACE the old NotificationProvider import with the NEW one */}
       <NotificationProvider>
         <DataProvider>
           <SimpleWebSocketProvider>
@@ -225,6 +214,10 @@ function App() {
                       vehicle={selectedTrackingVehicle}
                     />
                   )}
+
+                  {/* NEW: Real-time Notification Components */}
+                  <NotificationContainer />
+                  <RealTimeConnectionPopup />
                 </div>
               </Router>
             </SimpleErrorBoundary>

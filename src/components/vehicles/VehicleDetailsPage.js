@@ -9,7 +9,7 @@ import {
   Wifi, WifiOff
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import apiService from '../../services/api';
 
 const VehicleDetailsPage = ({ vehicleId, onBack, onEnhancedTracking }) => { // Added onEnhancedTracking prop

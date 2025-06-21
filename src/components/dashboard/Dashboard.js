@@ -10,13 +10,14 @@ import Overview from './Overview';
 import VehicleDetailsPage from '../vehicles/VehicleDetailsPage';
 import DevicesPage from '../devices/DevicesPage';
 import DeviceDetailsPage from '../devices/DeviceDetailsPage';
-import AlarmsPage from '../alarms/AlarmsPage';
 import DeviceAssignment from '../devices/DeviceAssignment';
-import NotificationPanel from '../common/Notification';
+//import NotificationPanel from '../common/Notification';
 import LeafletLiveMapPage from '../tracking/LeafletLiveMapPage';
 import ApiDiagnosticTool from '../diagnostics/ApiDiagnosticTool';
 import SimpleErrorBoundary from '../common/SimpleErrorBoundary';
 import ErrorDiagnostic from '../diagnostics/ErrorDiagnostic';
+import EnhancedAlarmManagement from '../alarms/EnhancedAlarmManagement';
+import EnhancedLiveAlarmManagement from '../alarms/EnhancedLiveAlarmManagement';
 
 // Import API-Only components
 import ApiOnlyRouteTracker from '../tracking/ApiOnlyRouteTracker';
@@ -92,6 +93,8 @@ const Dashboard = () => {
         );
       case 'devices':
         return <DevicesPage onViewDevice={handleViewDevice} />;
+        case 'alarms':
+  return <EnhancedLiveAlarmManagement />;
       case 'device-details':
         return (
           <DeviceDetailsPage 
@@ -99,8 +102,9 @@ const Dashboard = () => {
             onBack={handleBackFromDeviceDetails} 
           />
         );
-      case 'alarms':
-        return <AlarmsPage />;
+        case 'alarms':
+  return <EnhancedAlarmManagement />;
+  
       default:
         return <Overview onViewVehicle={handleViewVehicle} />;
     }
@@ -112,7 +116,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <NotificationPanel />
+      
       <Header />
       {/* Only show navigation if not viewing details pages */}
       {activeTab !== 'device-details' && activeTab !== 'vehicle-details' && (

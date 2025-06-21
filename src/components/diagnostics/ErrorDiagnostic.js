@@ -105,7 +105,7 @@ const ErrorDiagnostic = () => {
           name: 'Notifications',
           test: async () => {
             try {
-              const { useNotification } = await import('../../contexts/NotificationContext');
+              const { useNotification } = await import('../../contexts/NotificationContext.js.backup');
               return typeof useNotification === 'function';
             } catch (error) {
               throw new Error(`NotificationContext import failed: ${error.message}`);

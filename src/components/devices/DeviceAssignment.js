@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Eye, Edit, Trash2, Plus, Navigation, Shield, Car, Link, Settings } from 'lucide-react';
+import { Edit, Trash2, Plus, Navigation, Shield, Car, X, AlertTriangle } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
-import { useNotification } from '../../contexts/NotificationContext';
+import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
 import Modal from '../common/Modal';
 import VehicleForm from '../vehicles/VehicleForm';
 import StatCard from '../dashboard/StatCard';
@@ -12,6 +12,7 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState('');
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  const [confirmUnassign, setConfirmUnassign] = useState(null); // For confirmation state
 
   const handleAdd = () => {
     setModalType('add');
@@ -23,12 +24,6 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
     setModalType('edit');
     setSelectedVehicle(vehicle);
     setShowModal(true);
-  };
-
-  const handleView = (vehicle) => {
-    if (onViewVehicle && typeof onViewVehicle === 'function') {
-      onViewVehicle(vehicle.vehicle_id);
-    }
   };
 
   const handleEnhancedTracking = (vehicle) => {
@@ -78,9 +73,23 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
           ? 'Device unassigned successfully' 
           : 'Device assigned successfully'
       );
+      setConfirmUnassign(null); // Reset confirmation state
     } catch (error) {
       showError('Error', `Failed to update device assignment: ${error.message}`);
     }
+  };
+
+  // Handle unassign with confirmation
+  const handleUnassignClick = (deviceId) => {
+    setConfirmUnassign(deviceId);
+  };
+
+  const handleConfirmUnassign = async (deviceId) => {
+    await handleDeviceAssignment(deviceId, 'unassign');
+  };
+
+  const handleCancelUnassign = () => {
+    setConfirmUnassign(null);
   };
 
   const getVehicleWithStatus = (vehicle) => {
@@ -157,14 +166,6 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => handleView(vehicle)}
-              className="flex items-center gap-2 px-4 py-2 text-blue-600 border border-blue-600 rounded-lg hover:bg-blue-50"
-            >
-              <Eye className="w-4 h-4" />
-              View Details
-            </button>
-            
             <div className="flex gap-2">
               <button
                 onClick={() => handleEdit(vehicle)}
@@ -209,19 +210,41 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
   };
 
   const VehicleDataTable = () => {
+    // FIXED: Enhanced mapping of API fields to display fields with proper fallbacks
     const tableRows = data.vehicles.map(vehicle => {
       const vehicleWithStatus = getVehicleWithStatus(vehicle);
+      
+      // Enhanced field mapping to handle different API response formats
+      const getFieldValue = (vehicle, primaryField, fallbackFields = [], defaultValue = 'N/A') => {
+        // Check primary field first
+        if (vehicle[primaryField] && vehicle[primaryField] !== null && vehicle[primaryField] !== '') {
+          return vehicle[primaryField];
+        }
+        
+        // Check fallback fields
+        for (const fallback of fallbackFields) {
+          if (vehicle[fallback] && vehicle[fallback] !== null && vehicle[fallback] !== '') {
+            return vehicle[fallback];
+          }
+        }
+        
+        return defaultValue;
+      };
+
       return {
         vehicle_id: vehicle.vehicle_id,
-        vehicle_number: vehicle.vehicle_number,
-        manufacturer: vehicle.manufacturer,
-        model: vehicle.model,
-        vehicle_type: vehicle.vehicle_type,
+        vehicle_number: getFieldValue(vehicle, 'vehicle_number', ['vehicleNumber', 'license_plate', 'plateNumber']),
+        manufacturer: getFieldValue(vehicle, 'manufacturer', ['vehicleManufacturer', 'make', 'brand']),
+        model: getFieldValue(vehicle, 'model', ['vehicle_model', 'vehicleModel', 'vehicleName']),
+        vehicle_type: getFieldValue(vehicle, 'vehicle_type', ['vehicleType', 'type', 'category']),
         status: vehicleWithStatus.isOnline ? 'Online' : 'Offline',
         devices: vehicleWithStatus.deviceCount,
         alarms: vehicleWithStatus.alarmCount
       };
     });
+
+    console.log('🔍 Debug - Sample vehicle data:', data.vehicles[0]); // Debug log
+    console.log('🔍 Debug - Sample table row:', tableRows[0]); // Debug log
 
     return (
       <div className="p-6 bg-white rounded-lg shadow-md">
@@ -296,13 +319,7 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
                       </td>
                       <td className="px-6 py-4 text-sm font-medium whitespace-nowrap">
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => handleView(vehicle)}
-                            className="text-blue-600 hover:text-blue-900"
-                            title="View Vehicle Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
+                          {/* REMOVED VIEW ICON AS REQUESTED */}
                           {onEnhancedTracking && (
                             <button
                               onClick={() => handleEnhancedTracking(vehicle)}
@@ -384,7 +401,7 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
                       <option value="">Select Vehicle</option>
                       {data.vehicles.map((vehicle) => (
                         <option key={vehicle.vehicle_id} value={vehicle.vehicle_id}>
-                          {vehicle.vehicle_number} - {vehicle.manufacturer} {vehicle.model}
+                          {vehicle.vehicle_number} - {vehicle.manufacturer || 'Unknown'} {vehicle.model || 'Model'}
                         </option>
                       ))}
                     </select>
@@ -399,7 +416,7 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
             </div>
           </div>
 
-          {/* Assigned Devices */}
+          {/* Assigned Devices - UPDATED SECTION WITH IMPROVED UNASSIGN BUTTON */}
           <div>
             <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900 text-md">
               <Car className="w-5 h-5" />
@@ -412,7 +429,7 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
                   <div key={vehicle.vehicle_id} className="p-4 border rounded-lg">
                     <div className="mb-3">
                       <h5 className="font-medium text-gray-900">
-                        {vehicle.vehicle_number} - {vehicle.manufacturer} {vehicle.model}
+                        {vehicle.vehicle_number} - {vehicle.manufacturer || 'Unknown'} {vehicle.model || 'Model'}
                       </h5>
                       <p className="text-sm text-gray-600">{vehicle.vehicle_type}</p>
                     </div>
@@ -420,18 +437,43 @@ const FleetManagementPage = ({ onViewVehicle, onEnhancedTracking }) => {
                     {assignedDevices.length > 0 ? (
                       <div className="space-y-2">
                         {assignedDevices.map((device) => (
-                          <div key={device.device_id} className="flex items-center justify-between p-2 rounded bg-green-50">
+                          <div key={device.device_id} className="flex items-center justify-between p-3 border border-green-200 rounded-lg bg-green-50">
                             <div>
                               <span className="text-sm font-medium text-green-900">{device.device_name}</span>
                               <span className="ml-2 text-xs text-green-700">({device.device_type})</span>
                             </div>
-                            <button
-                              onClick={() => handleDeviceAssignment(device.device_id, 'unassign')}
-                              className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
-                              disabled={loading}
-                            >
-                              Unassign
-                            </button>
+                            
+                            {/* IMPROVED UNASSIGN BUTTON */}
+                            {confirmUnassign === device.device_id ? (
+                              // Show confirmation buttons
+                              <div className="flex items-center gap-2">
+                                <span className="mr-2 text-sm text-gray-600">Are you sure?</span>
+                                <button
+                                  onClick={() => handleConfirmUnassign(device.device_id)}
+                                  className="px-3 py-1 text-xs font-medium text-white transition-colors duration-200 bg-red-600 rounded hover:bg-red-700"
+                                  disabled={loading}
+                                >
+                                  {loading ? 'Removing...' : 'Yes, Remove'}
+                                </button>
+                                <button
+                                  onClick={handleCancelUnassign}
+                                  className="px-3 py-1 text-xs font-medium text-gray-600 transition-colors duration-200 bg-gray-200 rounded hover:bg-gray-300"
+                                  disabled={loading}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              // Show unassign button
+                              <button
+                                onClick={() => handleUnassignClick(device.device_id)}
+                                className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-600 transition-colors duration-200 border border-orange-200 rounded-md bg-orange-50 hover:bg-orange-100 hover:border-orange-300 disabled:opacity-50"
+                                disabled={loading}
+                              >
+                                <X className="w-4 h-4" />
+                                Unassign
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>

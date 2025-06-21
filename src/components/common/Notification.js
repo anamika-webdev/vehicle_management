@@ -1,36 +1,28 @@
+// src/components/common/Notification.js - Minimal debug version
 import React from 'react';
 import { X } from 'lucide-react';
 import { useNotification } from '../../contexts/NotificationContext';
 
 const NotificationPanel = () => {
-  const { notifications, removeNotification } = useNotification();
+  // This should be line 8 - hook called unconditionally
+  const { notifications = [], removeNotification = () => {} } = useNotification();
+
+  console.log('NotificationPanel rendered, notifications:', notifications);
 
   return (
     <div className="fixed z-50 max-w-sm top-4 right-4">
-      {notifications.map(notification => (
+      {notifications.map ? notifications.map(notification => (
         <div
           key={notification.id}
-          className={`mb-2 p-4 rounded-lg shadow-lg border-l-4 bg-white animate-slide-in ${
-            notification.type === 'critical' ? 'border-red-500' : 
-            notification.type === 'error' ? 'border-red-500' :
-            notification.type === 'warning' ? 'border-yellow-500' :
-            notification.type === 'success' ? 'border-green-500' :
-            'border-blue-500'
-          }`}
+          className="p-4 mb-2 bg-white border-l-4 border-blue-500 rounded-lg shadow-lg"
         >
           <div className="flex items-start justify-between">
             <div className="flex-1">
-              <h4 className={`font-bold text-sm ${
-                notification.type === 'critical' || notification.type === 'error' ? 'text-red-800' :
-                notification.type === 'warning' ? 'text-yellow-800' :
-                notification.type === 'success' ? 'text-green-800' :
-                'text-blue-800'
-              }`}>
-                {notification.title}
+              <h4 className="text-sm font-bold text-blue-800">
+                {notification.title || 'Test'}
               </h4>
-              <p className="mt-1 text-xs text-gray-600">{notification.message}</p>
-              <p className="mt-1 text-xs text-gray-400">
-                {new Date(notification.timestamp).toLocaleTimeString()}
+              <p className="mt-1 text-xs text-gray-600">
+                {notification.message || 'Test message'}
               </p>
             </div>
             <button
@@ -41,7 +33,7 @@ const NotificationPanel = () => {
             </button>
           </div>
         </div>
-      ))}
+      )) : <div>No notifications array</div>}
     </div>
   );
 };

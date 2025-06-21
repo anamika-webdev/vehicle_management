@@ -65,11 +65,7 @@ const Navigation = ({ activeTab, setActiveTab }) => {
             >
               <Icon className="w-4 h-4" />
               {label}
-              {id === 'alarms' && unresolvedAlarmsCount > 0 && (
-                <span className="px-2 py-1 ml-1 text-xs text-white bg-red-500 rounded-full">
-                  {unresolvedAlarmsCount}
-                </span>
-              )}
+              
               {id === 'live-map' && vehiclesWithGPS > 0 && (
                 <span className="px-2 py-1 ml-1 text-xs text-white bg-green-500 rounded-full">
                   {vehiclesWithGPS}
