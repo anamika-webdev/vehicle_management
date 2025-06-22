@@ -541,9 +541,8 @@ const ComprehensiveAlarmSystem = () => {
       <div className="flex flex-col justify-between gap-4 mb-6 lg:flex-row lg:items-center">
         <div>
           <h1 className="flex items-center gap-3 text-3xl font-bold text-gray-900">
-            🚨 FIXED: Comprehensive Alarm Management
+            🚨Alarm Management
           </h1>
-          <p className="mt-1 text-gray-600">✅ Live Alarms Now Visible in Table | All Device Alarms Included</p>
           <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
             <div className="flex items-center gap-1">
               <Clock className="w-4 h-4" />
@@ -597,10 +596,7 @@ const ComprehensiveAlarmSystem = () => {
       {/* FIXED Statistics Cards - Now properly counting live alarms */}
       <div className="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 lg:grid-cols-6">
         {[
-          { label: 'Manager Alarms', count: allAlarms.length, color: 'text-gray-600', icon: Bell, source: 'manager' },
-          { label: 'Device Alarms', count: deviceAlarms.length, color: 'text-blue-600', icon: Bell, source: 'device' },
           { label: 'Live Alarms ✅', count: liveAlarms.length, color: 'text-purple-600', icon: Zap, source: 'live' },
-          { label: 'Critical', count: combinedAlarms.filter(a => a.severity === 'critical' && !a.resolved).length, color: 'text-red-600', icon: AlertTriangle },
           { label: 'Active', count: combinedAlarms.filter(a => !a.resolved).length, color: 'text-orange-600', icon: AlertTriangle },
           { label: 'Total Shown', count: combinedAlarms.length, color: 'text-green-600', icon: MapPin }
         ].map((stat, index) => (
@@ -624,10 +620,8 @@ const ComprehensiveAlarmSystem = () => {
             <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
               <option value="all">All Sources</option>
               <option value="manager">Manager Alarms</option>
-              <option value="device">Device Alarms</option>
               <option value="live">Live Alarms ✅</option>
               <option value="active">Active Only</option>
-              <option value="resolved">Resolved Only</option>
               <option value="critical">Critical Only</option>
             </select>
           </div>
@@ -906,126 +900,6 @@ const ComprehensiveAlarmSystem = () => {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Footer Summary - FIXED: Now shows live alarms properly */}
-      <div className="p-4 mt-6 bg-white rounded-lg shadow">
-        <div className="grid grid-cols-1 gap-4 text-sm text-gray-600 md:grid-cols-3">
-          <div>
-            <h4 className="mb-2 font-semibold text-gray-900">✅ FIXED: Data Sources</h4>
-            <div className="space-y-1">
-              <div>Manager Alarms: <strong>{allAlarms.length}</strong></div>
-              <div>Device Alarms: <strong>{deviceAlarms.length}</strong> (from {devices.length} devices)</div>
-              <div className="text-purple-600">Live Alarms in Table: <strong>{liveAlarms.length}</strong> ✅</div>
-            </div>
-          </div>
-          <div>
-            <h4 className="mb-2 font-semibold text-gray-900">Status Summary</h4>
-            <div className="space-y-1">
-              <div>Total Combined: <strong>{combinedAlarms.length}</strong></div>
-              <div>Currently Shown: <strong>{currentAlarms.length}</strong></div>
-              <div>Selected: <strong>{selectedAlarms.length}</strong></div>
-              <div>Critical Active: <strong className="text-red-600">{combinedAlarms.filter(a => a.severity === 'critical' && !a.resolved).length}</strong></div>
-            </div>
-          </div>
-          <div>
-            <h4 className="mb-2 font-semibold text-gray-900">Live Monitoring</h4>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${streamActive ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                Status: <strong>{streamActive ? 'Polling Active' : 'Stopped'}</strong>
-              </div>
-              {lastStreamUpdate && (
-                <div>Last Check: <strong>{lastStreamUpdate.toLocaleTimeString()}</strong></div>
-              )}
-              <div className="text-purple-600">Live in Table: <strong>{liveAlarms.length}</strong> ✅</div>
-            </div>
-          </div>
-        </div>
-        
-        <div className="pt-4 mt-4 border-t border-gray-200">
-          <div className="flex items-center justify-between text-xs text-gray-500">
-            <span>
-              ✅ FIXED: Live alarms now properly visible in main table | 
-              🔐 All {devices.length} devices monitored | 
-              📊 Sources: Manager + All Devices + Live Polling
-            </span>
-            <span>
-              Fixed Comprehensive Alarm System v2.2
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* SUCCESS: Fixed Message */}
-      <div className="p-6 mt-6 border-2 border-green-500 rounded-lg bg-gradient-to-r from-green-50 to-purple-50">
-        <h3 className="flex items-center gap-2 mb-3 text-lg font-bold text-gray-900">
-          <CheckCircle className="w-5 h-5 text-green-600" />
-          ✅ FIXED: Live Alarms Now Visible in Table!
-        </h3>
-        
-        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-          <div>
-            <h4 className="mb-2 font-semibold text-gray-900">🔧 What's Fixed:</h4>
-            <ul className="space-y-1 text-sm text-gray-700">
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                ✅ Live alarms now ALWAYS included in main table
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                ✅ All device alarms properly fetched from ALL devices
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                ✅ Live alarms sorted to top with purple highlighting
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                ✅ Duplicate alarm handling (prioritizes live over historical)
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                ✅ Better tracking of seen live alarms to prevent duplicates
-              </li>
-            </ul>
-          </div>
-          
-          <div>
-            <h4 className="mb-2 font-semibold text-gray-900">🌟 Enhanced Features:</h4>
-            <ul className="space-y-1 text-sm text-gray-700">
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                📊 Live alarms shown with purple badges and animation
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                🔄 Proper state management for all three alarm sources
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                📍 Enhanced filtering with "Live Alarms ✅" option
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                🚨 Critical alarm popups for live alarms with sound
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-600" />
-                📄 Pagination with all alarms (including live) properly counted
-              </li>
-            </ul>
-          </div>
-        </div>
-        
-        <div className="p-3 mt-4 bg-white border border-green-200 rounded">
-          <p className="text-sm text-gray-800">
-            <strong>✅ LIVE ALARMS NOW VISIBLE!</strong> The getCombinedAlarms function has been fixed to ALWAYS include live alarms 
-            in the main table regardless of filter settings. Live alarms are automatically sorted to the top and highlighted 
-            in purple. All {devices.length} devices are properly monitored for device-specific alarms. 
-            Current display: {combinedAlarms.length} total alarms including {liveAlarms.length} live alarms!
-          </p>
-        </div>
       </div>
     </div>
   );
