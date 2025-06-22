@@ -1,532 +1,408 @@
-// src/services/enhancedApiService.js
-import axios from 'axios';
+// src/services/enhancedApiService.js - Updated to integrate with your existing API service
 
-class EnhancedApiService {
+import apiService from './api'; // Import your existing API service
+
+class EnhancedAlarmService {
   constructor() {
     this.baseURL = 'http://164.52.194.198:9090';
-    this.timeout = 30000;
-    
-    // Create axios instance
-    this.api = axios.create({
-      baseURL: this.baseURL,
-      timeout: this.timeout,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    });
-
-    // Add request interceptor for logging
-    this.api.interceptors.request.use(
-      (config) => {
-        console.log(`🚀 API Request: ${config.method?.toUpperCase()} ${config.url}`);
-        return config;
-      },
-      (error) => {
-        console.error('❌ API Request Error:', error);
-        return Promise.reject(error);
-      }
-    );
-
-    // Add response interceptor for logging
-    this.api.interceptors.response.use(
-      (response) => {
-        console.log(`✅ API Response: ${response.status} ${response.config.url}`);
-        return response;
-      },
-      (error) => {
-        console.error(`❌ API Response Error: ${error.response?.status} ${error.config?.url}`, error);
-        return Promise.reject(error);
-      }
-    );
+    this.eventSource = null;
+    this.reconnectAttempts = 0;
+    this.maxReconnectAttempts = 5;
+    this.reconnectDelay = 5000;
   }
 
-  // ===========================================
-  // DEVICE ENDPOINTS
-  // ===========================================
+  // ============================================
+  // ALARM FETCHING METHODS - ENHANCED
+  // ============================================
 
-  async getAllDevices() {
-    try {
-      console.log('📱 Fetching all devices...');
-      const response = await this.api.get('/device/v1/all');
-      
-      if (response.data) {
-        const devices = Array.isArray(response.data) ? response.data : 
-                       (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
-        
-        console.log(`✅ Found ${devices.length} devices`);
-        return {
-          success: true,
-          data: devices.map(device => ({
-            ...device,
-            deviceId: device.deviceId || device.device_id || device.id,
-            deviceName: device.deviceName || device.device_name || device.name,
-            status: device.status || 'unknown',
-            latitude: device.latitude ? parseFloat(device.latitude) : null,
-            longitude: device.longitude ? parseFloat(device.longitude) : null
-          }))
-        };
-      }
-      
-      return { success: true, data: [] };
-    } catch (error) {
-      console.error('❌ Failed to fetch devices:', error);
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  // ===========================================
-  // ALARM ENDPOINTS - COMPREHENSIVE FETCHING
-  // ===========================================
-
-  async getDeviceAlarms(deviceId, page = 0, size = 20) {
-    try {
-      console.log(`🚨 Fetching alarms for device ${deviceId}...`);
-      const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}&sortBy=deviceId&direction=asc`;
-      const response = await this.api.get(endpoint);
-      
-      if (response.data) {
-        const alarms = Array.isArray(response.data) ? response.data : 
-                      (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
-        
-        const transformedAlarms = alarms.map(alarm => ({
-          id: alarm.alarmId || alarm.id || `${deviceId}_${Date.now()}`,
-          device_id: deviceId,
-          alarmType: alarm.alarmType || alarm.type || alarm.alert_type,
-          severity: alarm.severity || 'medium',
-          status: alarm.status || 'active',
-          message: alarm.message || alarm.description,
-          timestamp: alarm.timestamp || alarm.createdAt || new Date().toISOString(),
-          resolved: Boolean(alarm.resolved),
-          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
-          imageUrl: alarm.imageUrl || alarm.image_url || alarm.attachmentUrl,
-          // Additional fields that might be present
-          vehicleId: alarm.vehicleId || alarm.vehicle_id,
-          alertCode: alarm.alertCode || alarm.alert_code,
-          priority: alarm.priority,
-          acknowledgedBy: alarm.acknowledgedBy,
-          acknowledgedAt: alarm.acknowledgedAt,
-          resolvedBy: alarm.resolvedBy,
-          resolvedAt: alarm.resolvedAt,
-          metadata: alarm.metadata || {}
-        }));
-        
-        console.log(`✅ Found ${transformedAlarms.length} alarms for device ${deviceId}`);
-        return {
-          success: true,
-          data: transformedAlarms
-        };
-      }
-      
-      return { success: true, data: [] };
-    } catch (error) {
-      console.error(`❌ Failed to fetch alarms for device ${deviceId}:`, error);
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
+  /**
+   * Fetch all manager alarms from /alarm/v1/manager/all
+   */
   async getAllManagerAlarms(page = 0, size = 100) {
     try {
       console.log('🚨 Fetching all manager alarms...');
       const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}`;
-      const response = await this.api.get(endpoint);
       
-      if (response.data) {
+      // Use your existing API service request method
+      const response = await apiService.request(endpoint);
+      
+      if (response?.data) {
         const alarms = Array.isArray(response.data) ? response.data : 
                       (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
         
         const transformedAlarms = alarms.map(alarm => ({
-          id: alarm.alarmId || alarm.id || `alarm_${Date.now()}`,
+          id: alarm.alarmId || alarm.id || `manager_${Date.now()}`,
           device_id: alarm.deviceId || alarm.device_id,
           vehicleId: alarm.vehicleId || alarm.vehicle_id,
-          alarmType: alarm.alarmType || alarm.type || alarm.alert_type,
-          severity: alarm.severity || 'medium',
+          alarmType: alarm.alarmType || alarm.type || alarm.alert_type || 'Manager Alert',
+          severity: this.normalizeSeverity(alarm.severity),
           status: alarm.status || 'active',
-          message: alarm.message || alarm.description,
+          message: alarm.message || alarm.description || 'Manager alarm detected',
           timestamp: alarm.timestamp || alarm.createdAt || new Date().toISOString(),
           resolved: Boolean(alarm.resolved),
           latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
           longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
           imageUrl: alarm.imageUrl || alarm.image_url || alarm.attachmentUrl,
-          // Additional fields
+          // Additional metadata
           alertCode: alarm.alertCode || alarm.alert_code,
           priority: alarm.priority,
           acknowledgedBy: alarm.acknowledgedBy,
           acknowledgedAt: alarm.acknowledgedAt,
           resolvedBy: alarm.resolvedBy,
           resolvedAt: alarm.resolvedAt,
-          metadata: alarm.metadata || {}
+          metadata: alarm.metadata || {},
+          source: 'manager'
         }));
         
         console.log(`✅ Found ${transformedAlarms.length} manager alarms`);
         return {
           success: true,
-          data: transformedAlarms
+          data: transformedAlarms,
+          total: transformedAlarms.length
         };
       }
       
-      return { success: true, data: [] };
+      return { success: true, data: [], total: 0 };
     } catch (error) {
       console.error('❌ Failed to fetch manager alarms:', error);
       return {
         success: false,
         data: [],
-        error: error.message
+        error: error.message,
+        total: 0
       };
     }
   }
 
-  async getAllAlarmsFromAllDevices() {
+  /**
+   * Fetch device-specific alarms from /alarm/v1/device/{deviceId}
+   */
+  async getDeviceAlarms(deviceId, page = 0, size = 20, sortBy = 'deviceId', direction = 'asc') {
     try {
-      console.log('🚨 Fetching alarms from all devices...');
+      console.log(`🔍 Fetching alarms for device ${deviceId}...`);
+      const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
       
-      // First, get all devices
-      const devicesResponse = await this.getAllDevices();
-      if (!devicesResponse.success || devicesResponse.data.length === 0) {
-        console.warn('⚠️ No devices found');
-        return { success: true, data: [] };
-      }
-
-      console.log(`📱 Found ${devicesResponse.data.length} devices, fetching alarms for each...`);
+      // Use your existing API service request method
+      const response = await apiService.request(endpoint);
       
-      // Fetch alarms for all devices concurrently
-      const alarmPromises = devicesResponse.data.map(device => {
-        const deviceId = device.deviceId || device.device_id || device.id;
-        return this.getDeviceAlarms(deviceId, 0, 50); // Get more alarms per device
-      });
-
-      const alarmResults = await Promise.allSettled(alarmPromises);
-      
-      // Collect all successful alarm fetches
-      const allAlarms = [];
-      alarmResults.forEach((result, index) => {
-        if (result.status === 'fulfilled' && result.value.success) {
-          allAlarms.push(...result.value.data);
-        } else {
-          const deviceId = devicesResponse.data[index]?.deviceId || index;
-          console.warn(`⚠️ Failed to fetch alarms for device ${deviceId}`);
-        }
-      });
-
-      console.log(`✅ Successfully collected ${allAlarms.length} total alarms from all devices`);
-      
-      // Sort alarms by timestamp (newest first)
-      allAlarms.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      
-      return {
-        success: true,
-        data: allAlarms,
-        deviceCount: devicesResponse.data.length,
-        message: `Found ${allAlarms.length} alarms from ${devicesResponse.data.length} devices`
-      };
-      
-    } catch (error) {
-      console.error('❌ Failed to fetch alarms from all devices:', error);
-      return {
-        success: false,
-        data: [],
-        error: error.message
-      };
-    }
-  }
-
-  // ===========================================
-  // ALARM RESOLUTION ENDPOINTS
-  // ===========================================
-
-  async resolveAlarm(alarmId, deviceId = null) {
-    try {
-      console.log(`🔧 Resolving alarm ${alarmId}...`);
-      
-      // Try different endpoints for resolving alarms
-      const endpoints = [
-        `/alarm/v1/resolve/${alarmId}`,
-        `/alarm/v1/update/${alarmId}`,
-        deviceId ? `/alarm/v1/device/${deviceId}/resolve/${alarmId}` : null
-      ].filter(Boolean);
-
-      for (const endpoint of endpoints) {
-        try {
-          const response = await this.api.post(endpoint, {
-            resolved: true,
-            status: 'resolved',
-            resolvedAt: new Date().toISOString()
-          });
-          
-          if (response.status === 200 || response.status === 204) {
-            console.log(`✅ Alarm ${alarmId} resolved successfully`);
-            return { success: true };
-          }
-        } catch (endpointError) {
-          console.warn(`⚠️ Endpoint ${endpoint} failed:`, endpointError.message);
-          continue;
-        }
-      }
-      
-      throw new Error('All resolve endpoints failed');
-      
-    } catch (error) {
-      console.error(`❌ Failed to resolve alarm ${alarmId}:`, error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  async acknowledgeAlarm(alarmId, deviceId = null) {
-    try {
-      console.log(`👍 Acknowledging alarm ${alarmId}...`);
-      
-      const endpoints = [
-        `/alarm/v1/acknowledge/${alarmId}`,
-        `/alarm/v1/update/${alarmId}`,
-        deviceId ? `/alarm/v1/device/${deviceId}/acknowledge/${alarmId}` : null
-      ].filter(Boolean);
-
-      for (const endpoint of endpoints) {
-        try {
-          const response = await this.api.post(endpoint, {
-            acknowledged: true,
-            acknowledgedAt: new Date().toISOString()
-          });
-          
-          if (response.status === 200 || response.status === 204) {
-            console.log(`✅ Alarm ${alarmId} acknowledged successfully`);
-            return { success: true };
-          }
-        } catch (endpointError) {
-          console.warn(`⚠️ Endpoint ${endpoint} failed:`, endpointError.message);
-          continue;
-        }
-      }
-      
-      throw new Error('All acknowledge endpoints failed');
-      
-    } catch (error) {
-      console.error(`❌ Failed to acknowledge alarm ${alarmId}:`, error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ===========================================
-  // IMAGE/ATTACHMENT ENDPOINTS
-  // ===========================================
-
-  async downloadAlarmImage(imageUrl, alarmId = null) {
-    try {
-      console.log(`📸 Downloading alarm image: ${imageUrl}`);
-      
-      const response = await this.api.get(imageUrl, {
-        responseType: 'blob'
-      });
-      
-      if (response.data) {
-        // Create download link
-        const blob = new Blob([response.data]);
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `alarm_image_${alarmId || Date.now()}.jpg`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+      if (response?.data) {
+        const alarms = Array.isArray(response.data) ? response.data : 
+                      (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
         
-        console.log(`✅ Image downloaded successfully`);
-        return { success: true };
+        const transformedAlarms = alarms.map(alarm => ({
+          id: alarm.alarmId || alarm.id || `device_${deviceId}_${Date.now()}`,
+          device_id: deviceId,
+          vehicleId: alarm.vehicleId || alarm.vehicle_id,
+          alarmType: alarm.alarmType || alarm.type || alarm.alert_type || 'Device Alert',
+          severity: this.normalizeSeverity(alarm.severity),
+          status: alarm.status || 'active',
+          message: alarm.message || alarm.description || 'Device alarm detected',
+          timestamp: alarm.timestamp || alarm.createdAt || new Date().toISOString(),
+          resolved: Boolean(alarm.resolved),
+          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
+          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
+          imageUrl: alarm.imageUrl || alarm.image_url || alarm.attachmentUrl,
+          // Additional metadata
+          alertCode: alarm.alertCode || alarm.alert_code,
+          priority: alarm.priority,
+          acknowledgedBy: alarm.acknowledgedBy,
+          acknowledgedAt: alarm.acknowledgedAt,
+          resolvedBy: alarm.resolvedBy,
+          resolvedAt: alarm.resolvedAt,
+          metadata: alarm.metadata || {},
+          source: 'device'
+        }));
+        
+        console.log(`✅ Found ${transformedAlarms.length} alarms for device ${deviceId}`);
+        return {
+          success: true,
+          data: transformedAlarms,
+          total: transformedAlarms.length
+        };
       }
       
-      throw new Error('No image data received');
-      
+      return { success: true, data: [], total: 0 };
     } catch (error) {
-      console.error('❌ Failed to download alarm image:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  // ===========================================
-  // TELEMETRY ENDPOINTS
-  // ===========================================
-
-  async getDeviceTelemetry(deviceId, page = 0, size = 10) {
-    try {
-      console.log(`📊 Fetching telemetry for device ${deviceId}...`);
-      
-      const endpoints = [
-        `/device/v1/data/${deviceId}?page=${page}&size=${size}&direction=desc`,
-        `/deviceTelemetry/v1/device/${deviceId}?page=${page}&size=${size}`,
-        `/telemetry/v1/device/${deviceId}?page=${page}&size=${size}`
-      ];
-
-      for (const endpoint of endpoints) {
-        try {
-          const response = await this.api.get(endpoint);
-          
-          if (response.data) {
-            const telemetryData = Array.isArray(response.data) ? response.data : 
-                                 (response.data.data && Array.isArray(response.data.data)) ? response.data.data : [];
-            
-            const transformedData = telemetryData.map(item => ({
-              id: item.id || `${deviceId}_${Date.now()}`,
-              device_id: deviceId,
-              timestamp: item.timestamp || item.createdAt || new Date().toISOString(),
-              latitude: item.latitude ? parseFloat(item.latitude) : null,
-              longitude: item.longitude ? parseFloat(item.longitude) : null,
-              speed: item.speed ? parseFloat(item.speed) : null,
-              heading: item.heading ? parseFloat(item.heading) : null,
-              altitude: item.altitude ? parseFloat(item.altitude) : null,
-              accuracy: item.accuracy ? parseFloat(item.accuracy) : null,
-              battery_voltage: item.battery_voltage ? parseFloat(item.battery_voltage) : null,
-              signal_strength: item.signal_strength ? parseFloat(item.signal_strength) : null,
-              temperature: item.temperature ? parseFloat(item.temperature) : null,
-              // Alert flags
-              collision: Boolean(item.collision),
-              rash_driving: Boolean(item.rashDriving || item.rash_driving),
-              drowsiness: Boolean(item.drowsiness),
-              speed_violation: Boolean(item.speed_violation),
-              harsh_braking: Boolean(item.harsh_braking),
-              harsh_acceleration: Boolean(item.harsh_acceleration),
-              // Additional data
-              ignition: Boolean(item.ignition),
-              engine_status: item.engine_status,
-              fuel_level: item.fuel_level ? parseFloat(item.fuel_level) : null,
-              odometer: item.odometer ? parseFloat(item.odometer) : null
-            }));
-            
-            console.log(`✅ Found ${transformedData.length} telemetry records for device ${deviceId}`);
-            return {
-              success: true,
-              data: transformedData,
-              endpoint_used: endpoint
-            };
-          }
-        } catch (endpointError) {
-          console.warn(`⚠️ Endpoint ${endpoint} failed:`, endpointError.message);
-          continue;
-        }
-      }
-      
-      return { success: true, data: [] };
-      
-    } catch (error) {
-      console.error(`❌ Failed to fetch telemetry for device ${deviceId}:`, error);
+      console.error(`❌ Failed to fetch alarms for device ${deviceId}:`, error);
       return {
         success: false,
         data: [],
-        error: error.message
+        error: error.message,
+        total: 0
       };
     }
   }
 
-  // ===========================================
-  // UTILITY METHODS
-  // ===========================================
-
-  async testConnection() {
+  /**
+   * Fetch all historical alarms from all sources
+   */
+  async getAllHistoricalAlarms() {
     try {
-      console.log('🔌 Testing API connection...');
-      const response = await this.api.get('/health');
-      return {
-        success: true,
-        status: 'connected',
-        message: 'API connection successful'
-      };
-    } catch (error) {
-      console.error('❌ API connection test failed:', error);
-      return {
-        success: false,
-        status: 'disconnected',
-        error: error.message
-      };
-    }
-  }
-
-  // Export alarm data to CSV
-  exportAlarmsToCSV(alarms, filename = null) {
-    try {
-      if (!alarms || alarms.length === 0) {
-        throw new Error('No alarms to export');
-      }
-
-      const headers = [
-        'Alarm ID',
-        'Device ID',
-        'Vehicle ID',
-        'Type',
-        'Severity',
-        'Status',
-        'Message',
-        'Timestamp',
-        'Resolved',
-        'Latitude',
-        'Longitude',
-        'Image URL',
-        'Alert Code',
-        'Priority',
-        'Acknowledged By',
-        'Acknowledged At',
-        'Resolved By',
-        'Resolved At'
-      ];
-
-      const csvRows = alarms.map(alarm => [
-        alarm.id || '',
-        alarm.device_id || '',
-        alarm.vehicleId || '',
-        alarm.alarmType || '',
-        alarm.severity || '',
-        alarm.status || '',
-        (alarm.message || '').replace(/,/g, ';'),
-        alarm.timestamp || '',
-        alarm.resolved ? 'Yes' : 'No',
-        alarm.latitude || '',
-        alarm.longitude || '',
-        alarm.imageUrl || '',
-        alarm.alertCode || '',
-        alarm.priority || '',
-        alarm.acknowledgedBy || '',
-        alarm.acknowledgedAt || '',
-        alarm.resolvedBy || '',
-        alarm.resolvedAt || ''
+      console.log('📚 Fetching all historical alarms...');
+      
+      // Fetch manager alarms and devices concurrently
+      const [managerAlarmsResult, devicesResult] = await Promise.allSettled([
+        this.getAllManagerAlarms(0, 100),
+        apiService.getAllDevices()
       ]);
 
-      const csvContent = [headers, ...csvRows]
-        .map(row => row.map(cell => `"${cell}"`).join(','))
-        .join('\n');
+      let managerAlarms = [];
+      if (managerAlarmsResult.status === 'fulfilled' && managerAlarmsResult.value.success) {
+        managerAlarms = managerAlarmsResult.value.data;
+      }
 
-      // Create and download file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename || `alarms_export_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      let devices = [];
+      if (devicesResult.status === 'fulfilled' && devicesResult.value.success) {
+        devices = devicesResult.value.data;
+      }
 
-      console.log(`✅ Exported ${alarms.length} alarms to CSV`);
-      return { success: true };
+      console.log(`📱 Found ${devices.length} devices, fetching device alarms...`);
+      
+      // Fetch alarms for all devices
+      const deviceAlarmPromises = devices.map(device => {
+        const deviceId = device.deviceId || device.device_id || device.id;
+        return this.getDeviceAlarms(deviceId, 0, 50);
+      });
+
+      const deviceAlarmResults = await Promise.allSettled(deviceAlarmPromises);
+      
+      // Collect all device alarms
+      const allDeviceAlarms = deviceAlarmResults
+        .filter(result => result.status === 'fulfilled' && result.value.success)
+        .flatMap(result => result.value.data);
+
+      // Combine all alarms
+      const allAlarms = [...managerAlarms, ...allDeviceAlarms];
+      
+      // Remove duplicates by ID
+      const uniqueAlarms = allAlarms.filter((alarm, index, self) => 
+        index === self.findIndex(a => a.id === alarm.id)
+      );
+
+      // Sort by timestamp (newest first)
+      const sortedAlarms = uniqueAlarms.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+      console.log(`✅ Total historical alarms: ${sortedAlarms.length}`);
+      return sortedAlarms;
       
     } catch (error) {
-      console.error('❌ Failed to export alarms to CSV:', error);
+      console.error('❌ Failed to fetch historical alarms:', error);
+      return [];
+    }
+  }
+
+  // ============================================
+  // LIVE STREAM MANAGEMENT - ENHANCED
+  // ============================================
+
+  /**
+   * Start live alarm stream from /alarm/v1/stream
+   */
+  startLiveStream(onAlarmReceived, onConnectionChange = null) {
+    try {
+      // Close existing connection if any
+      this.stopLiveStream();
+
+      console.log('🔴 Starting live alarm stream...');
+      this.eventSource = new EventSource(`${this.baseURL}/alarm/v1/stream`);
+      
+      this.eventSource.onopen = () => {
+        console.log('✅ Live alarm stream connected');
+        this.reconnectAttempts = 0;
+        onConnectionChange && onConnectionChange({ connected: true, attempts: 0 });
+      };
+
+      this.eventSource.onmessage = (event) => {
+        try {
+          const alarmData = JSON.parse(event.data);
+          console.log('🚨 New live alarm received:', alarmData);
+          
+          // Transform the alarm data to match our format
+          const transformedAlarm = {
+            id: alarmData.alarmId || alarmData.id || `live_${Date.now()}`,
+            device_id: alarmData.deviceId || alarmData.device_id,
+            vehicleId: alarmData.vehicleId || alarmData.vehicle_id,
+            alarmType: alarmData.alarmType || alarmData.type || 'Live Alert',
+            severity: this.normalizeSeverity(alarmData.severity),
+            status: alarmData.status || 'active',
+            message: alarmData.message || alarmData.description || 'Live alarm detected',
+            timestamp: alarmData.timestamp || new Date().toISOString(),
+            latitude: alarmData.latitude ? parseFloat(alarmData.latitude) : null,
+            longitude: alarmData.longitude ? parseFloat(alarmData.longitude) : null,
+            imageUrl: alarmData.imageUrl || alarmData.image_url,
+            resolved: false,
+            isLive: true,
+            source: 'live_stream',
+            // Additional live stream metadata
+            streamTimestamp: new Date().toISOString(),
+            priority: alarmData.priority || (alarmData.severity === 'critical' ? 'high' : 'normal')
+          };
+
+          onAlarmReceived(transformedAlarm);
+        } catch (error) {
+          console.error('❌ Error parsing live alarm data:', error);
+        }
+      };
+
+      this.eventSource.onerror = (error) => {
+        console.error('❌ Live alarm stream error:', error);
+        onConnectionChange && onConnectionChange({ 
+          connected: false, 
+          attempts: this.reconnectAttempts,
+          error: error 
+        });
+        
+        // Implement exponential backoff for reconnection
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.reconnectAttempts++;
+          const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+          
+          console.log(`🔄 Attempting to reconnect in ${delay}ms (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+          
+          setTimeout(() => {
+            if (this.eventSource?.readyState === EventSource.CLOSED) {
+              this.startLiveStream(onAlarmReceived, onConnectionChange);
+            }
+          }, delay);
+        } else {
+          console.error('❌ Max reconnection attempts reached');
+          onConnectionChange && onConnectionChange({ 
+            connected: false, 
+            attempts: this.reconnectAttempts,
+            maxAttemptsReached: true 
+          });
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to start live stream:', error);
+      onConnectionChange && onConnectionChange({ 
+        connected: false, 
+        error: error.message 
+      });
+    }
+  }
+
+  /**
+   * Stop live alarm stream
+   */
+  stopLiveStream() {
+    if (this.eventSource) {
+      console.log('🛑 Stopping live alarm stream');
+      this.eventSource.close();
+      this.eventSource = null;
+      this.reconnectAttempts = 0;
+    }
+  }
+
+  /**
+   * Get live stream connection status
+   */
+  getLiveStreamStatus() {
+    if (!this.eventSource) {
+      return { connected: false, readyState: 'CLOSED' };
+    }
+    
+    const readyStateNames = {
+      [EventSource.CONNECTING]: 'CONNECTING',
+      [EventSource.OPEN]: 'OPEN',
+      [EventSource.CLOSED]: 'CLOSED'
+    };
+    
+    return {
+      connected: this.eventSource.readyState === EventSource.OPEN,
+      readyState: readyStateNames[this.eventSource.readyState],
+      reconnectAttempts: this.reconnectAttempts
+    };
+  }
+
+  // ============================================
+  // ALARM MANAGEMENT METHODS
+  // ============================================
+
+  /**
+   * Resolve alarm (mock implementation since no API endpoint provided)
+   */
+  async resolveAlarm(alarmId, resolvedBy = 'system') {
+    try {
+      console.log(`✅ Resolving alarm ${alarmId}`);
+      
+      // TODO: Replace with actual API call when endpoint is available
+      // const response = await apiService.request(`/alarm/v1/resolve/${alarmId}`, 'POST', { resolvedBy });
+      
+      // Mock successful resolution
+      await new Promise(resolve => setTimeout(resolve, 500)); // Simulate API delay
+      
+      return { 
+        success: true, 
+        message: 'Alarm resolved successfully',
+        alarmId,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy
+      };
+    } catch (error) {
+      console.error(`❌ Failed to resolve alarm ${alarmId}:`, error);
+      return { 
+        success: false, 
+        error: error.message,
+        alarmId
+      };
+    }
+  }
+
+  /**
+   * Acknowledge alarm (mock implementation)
+   */
+  async acknowledgeAlarm(alarmId, acknowledgedBy = 'system') {
+    try {
+      console.log(`👁️ Acknowledging alarm ${alarmId}`);
+      
+      // TODO: Replace with actual API call when endpoint is available
+      // const response = await apiService.request(`/alarm/v1/acknowledge/${alarmId}`, 'POST', { acknowledgedBy });
+      
+      // Mock successful acknowledgment
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      return { 
+        success: true, 
+        message: 'Alarm acknowledged successfully',
+        alarmId,
+        acknowledgedAt: new Date().toISOString(),
+        acknowledgedBy
+      };
+    } catch (error) {
+      console.error(`❌ Failed to acknowledge alarm ${alarmId}:`, error);
+      return { 
+        success: false, 
+        error: error.message,
+        alarmId
+      };
+    }
+  }
+
+  /**
+   * Bulk resolve multiple alarms
+   */
+  async bulkResolveAlarms(alarmIds, resolvedBy = 'system') {
+    try {
+      console.log(`✅ Bulk resolving ${alarmIds.length} alarms`);
+      
+      const results = await Promise.allSettled(
+        alarmIds.map(alarmId => this.resolveAlarm(alarmId, resolvedBy))
+      );
+      
+      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failed = results.length - successful;
+      
+      return {
+        success: true,
+        message: `Resolved ${successful} alarms, ${failed} failed`,
+        successful,
+        failed,
+        results
+      };
+    } catch (error) {
+      console.error('❌ Failed to bulk resolve alarms:', error);
       return {
         success: false,
         error: error.message
@@ -534,80 +410,266 @@ class EnhancedApiService {
     }
   }
 
-  // Export alarm locations to KML for mapping
-  exportAlarmLocationsToKML(alarms, filename = null) {
-    try {
-      const alarmsWithLocation = alarms.filter(alarm => alarm.latitude && alarm.longitude);
-      
-      if (alarmsWithLocation.length === 0) {
-        throw new Error('No alarms with location data to export');
+  // ============================================
+  // UTILITY METHODS
+  // ============================================
+
+  /**
+   * Normalize severity levels
+   */
+  normalizeSeverity(severity) {
+    if (!severity) return 'medium';
+    
+    const severityMap = {
+      'critical': 'critical',
+      'high': 'high',
+      'medium': 'medium',
+      'low': 'low',
+      'warning': 'medium',
+      'error': 'high',
+      'info': 'low',
+      'alert': 'high'
+    };
+    
+    return severityMap[severity.toLowerCase()] || 'medium';
+  }
+
+  /**
+   * Get alarm statistics
+   */
+  getAlarmStatistics(alarms) {
+    const stats = {
+      total: alarms.length,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      active: 0,
+      resolved: 0,
+      live: 0,
+      withLocation: 0,
+      byDevice: {},
+      byType: {},
+      recentAlarms: 0 // Last 24 hours
+    };
+
+    const now = new Date();
+    const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    alarms.forEach(alarm => {
+      // Severity counts
+      if (alarm.severity === 'critical') stats.critical++;
+      else if (alarm.severity === 'high') stats.high++;
+      else if (alarm.severity === 'medium') stats.medium++;
+      else if (alarm.severity === 'low') stats.low++;
+
+      // Status counts
+      if (alarm.resolved) stats.resolved++;
+      else stats.active++;
+
+      // Live alarms
+      if (alarm.isLive) stats.live++;
+
+      // Location data
+      if (alarm.latitude && alarm.longitude) stats.withLocation++;
+
+      // Recent alarms (last 24 hours)
+      if (new Date(alarm.timestamp) > twentyFourHoursAgo) stats.recentAlarms++;
+
+      // By device
+      const deviceId = alarm.device_id || 'unknown';
+      stats.byDevice[deviceId] = (stats.byDevice[deviceId] || 0) + 1;
+
+      // By type
+      const alarmType = alarm.alarmType || 'unknown';
+      stats.byType[alarmType] = (stats.byType[alarmType] || 0) + 1;
+    });
+
+    return stats;
+  }
+
+  /**
+   * Filter alarms by criteria
+   */
+  filterAlarms(alarms, criteria) {
+    return alarms.filter(alarm => {
+      // Severity filter
+      if (criteria.severity && alarm.severity !== criteria.severity) {
+        return false;
       }
 
-      let kmlContent = `<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>Alarm Locations</name>
-    <description>Exported alarm locations with details</description>
-`;
+      // Status filter
+      if (criteria.status) {
+        if (criteria.status === 'active' && alarm.resolved) return false;
+        if (criteria.status === 'resolved' && !alarm.resolved) return false;
+        if (criteria.status === 'live' && !alarm.isLive) return false;
+      }
 
-      alarmsWithLocation.forEach(alarm => {
-        const severity = alarm.severity || 'medium';
-        const color = severity === 'critical' ? 'ff0000ff' : 
-                     severity === 'high' ? 'ff0080ff' :
-                     severity === 'medium' ? 'ff00ffff' : 'ff00ff00';
+      // Device filter
+      if (criteria.deviceId && alarm.device_id !== criteria.deviceId) {
+        return false;
+      }
 
-        kmlContent += `
-    <Placemark>
-      <name>Alarm: ${alarm.alarmType || 'Unknown'}</name>
-      <description><![CDATA[
-        <b>Device ID:</b> ${alarm.device_id}<br/>
-        <b>Type:</b> ${alarm.alarmType || 'Unknown'}<br/>
-        <b>Severity:</b> ${alarm.severity || 'medium'}<br/>
-        <b>Message:</b> ${alarm.message || 'No message'}<br/>
-        <b>Timestamp:</b> ${new Date(alarm.timestamp).toLocaleString()}<br/>
-        <b>Status:</b> ${alarm.resolved ? 'Resolved' : 'Active'}
-      ]]></description>
-      <Style>
-        <IconStyle>
-          <color>${color}</color>
-          <scale>1.2</scale>
-        </IconStyle>
-      </Style>
-      <Point>
-        <coordinates>${alarm.longitude},${alarm.latitude},0</coordinates>
-      </Point>
-    </Placemark>`;
-      });
+      // Date range filter
+      if (criteria.startDate || criteria.endDate) {
+        const alarmDate = new Date(alarm.timestamp);
+        if (criteria.startDate && alarmDate < new Date(criteria.startDate)) return false;
+        if (criteria.endDate && alarmDate > new Date(criteria.endDate)) return false;
+      }
 
-      kmlContent += `
-  </Document>
-</kml>`;
+      // Search term filter
+      if (criteria.searchTerm) {
+        const searchLower = criteria.searchTerm.toLowerCase();
+        const matchesMessage = alarm.message?.toLowerCase().includes(searchLower);
+        const matchesType = alarm.alarmType?.toLowerCase().includes(searchLower);
+        const matchesDevice = alarm.device_id?.toString().includes(searchLower);
+        
+        if (!matchesMessage && !matchesType && !matchesDevice) {
+          return false;
+        }
+      }
 
-      // Create and download file
-      const blob = new Blob([kmlContent], { type: 'application/vnd.google-earth.kml+xml' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', filename || `alarm_locations_${new Date().toISOString().split('T')[0]}.kml`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      return true;
+    });
+  }
 
-      console.log(`✅ Exported ${alarmsWithLocation.length} alarm locations to KML`);
-      return { success: true };
-      
+  /**
+   * Export alarms to various formats
+   */
+  exportAlarms(alarms, format = 'csv') {
+    try {
+      if (format === 'csv') {
+        return this.exportToCSV(alarms);
+      } else if (format === 'json') {
+        return this.exportToJSON(alarms);
+      } else {
+        throw new Error(`Unsupported export format: ${format}`);
+      }
     } catch (error) {
-      console.error('❌ Failed to export alarm locations to KML:', error);
+      console.error('❌ Failed to export alarms:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Export alarms to CSV format
+   */
+  exportToCSV(alarms) {
+    const headers = [
+      'ID', 'Device ID', 'Vehicle ID', 'Type', 'Severity', 'Status', 'Message', 
+      'Timestamp', 'Resolved', 'Latitude', 'Longitude', 'Source', 'Live Alarm',
+      'Alert Code', 'Priority', 'Acknowledged By', 'Resolved By'
+    ];
+    
+    const rows = alarms.map(alarm => [
+      alarm.id,
+      alarm.device_id,
+      alarm.vehicleId || '',
+      alarm.alarmType,
+      alarm.severity,
+      alarm.status,
+      alarm.message,
+      alarm.timestamp,
+      alarm.resolved ? 'Yes' : 'No',
+      alarm.latitude || '',
+      alarm.longitude || '',
+      alarm.source || '',
+      alarm.isLive ? 'Yes' : 'No',
+      alarm.alertCode || '',
+      alarm.priority || '',
+      alarm.acknowledgedBy || '',
+      alarm.resolvedBy || ''
+    ]);
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+
+    return {
+      success: true,
+      data: csvContent,
+      filename: `alarms_export_${new Date().toISOString().split('T')[0]}.csv`,
+      mimeType: 'text/csv'
+    };
+  }
+
+  /**
+   * Export alarms to JSON format
+   */
+  exportToJSON(alarms) {
+    const exportData = {
+      export_info: {
+        timestamp: new Date().toISOString(),
+        total_alarms: alarms.length,
+        export_version: '1.0'
+      },
+      statistics: this.getAlarmStatistics(alarms),
+      alarms: alarms
+    };
+
+    return {
+      success: true,
+      data: JSON.stringify(exportData, null, 2),
+      filename: `alarms_export_${new Date().toISOString().split('T')[0]}.json`,
+      mimeType: 'application/json'
+    };
+  }
+
+  // ============================================
+  // INTEGRATION WITH EXISTING API SERVICE
+  // ============================================
+
+  /**
+   * Get all devices using existing API service
+   */
+  async getAllDevices() {
+    try {
+      return await apiService.getAllDevices();
+    } catch (error) {
+      console.error('❌ Failed to fetch devices:', error);
+      return { success: false, data: [], error: error.message };
+    }
+  }
+
+  /**
+   * Health check for alarm services
+   */
+  async healthCheck() {
+    try {
+      const endpoints = [
+        '/alarm/v1/manager/all?page=0&size=1',
+        '/device/v1/all'
+      ];
+
+      const results = await Promise.allSettled(
+        endpoints.map(endpoint => apiService.request(endpoint))
+      );
+
+      const managerAlarmsOk = results[0].status === 'fulfilled';
+      const devicesOk = results[1].status === 'fulfilled';
+      const liveStreamStatus = this.getLiveStreamStatus();
+
+      return {
+        success: true,
+        services: {
+          manager_alarms: managerAlarmsOk,
+          devices: devicesOk,
+          live_stream: liveStreamStatus.connected
+        },
+        overall_health: managerAlarmsOk && devicesOk ? 'healthy' : 'degraded'
+      };
+    } catch (error) {
+      console.error('❌ Health check failed:', error);
       return {
         success: false,
-        error: error.message
+        error: error.message,
+        overall_health: 'unhealthy'
       };
     }
   }
 }
 
-// Create and export singleton instance
-const enhancedApiService = new EnhancedApiService();
-export default enhancedApiService;
+// Create and export enhanced alarm service instance
+const enhancedAlarmService = new EnhancedAlarmService();
+
+export default enhancedAlarmService;
