@@ -43,6 +43,12 @@ class EnhancedAlarmService {
           latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
           longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
           imageUrl: alarm.imageUrl || alarm.image_url || alarm.attachmentUrl,
+          speed: alarm.speed !== undefined && alarm.speed !== null ? parseFloat(alarm.speed) : null, // Add speed
+          acceleration: alarm.acceleration !== undefined && alarm.acceleration !== null ? parseFloat(alarm.acceleration) : null, // Add acceleration
+          drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
+          rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+          collision: alarm.collision !== undefined ? alarm.collision : null,
+
           // Additional metadata
           alertCode: alarm.alertCode || alarm.alert_code,
           priority: alarm.priority,
@@ -102,6 +108,12 @@ class EnhancedAlarmService {
           latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
           longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
           imageUrl: alarm.imageUrl || alarm.image_url || alarm.attachmentUrl,
+          speed: alarm.speed !== undefined && alarm.speed !== null ? parseFloat(alarm.speed) : null, // Add speed
+          acceleration: alarm.acceleration !== undefined && alarm.acceleration !== null ? parseFloat(alarm.acceleration) : null, // Add acceleration
+          drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
+          rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+          collision: alarm.collision !== undefined ? alarm.collision : null,
+
           // Additional metadata
           alertCode: alarm.alertCode || alarm.alert_code,
           priority: alarm.priority,
@@ -230,6 +242,8 @@ class EnhancedAlarmService {
             latitude: alarmData.latitude ? parseFloat(alarmData.latitude) : null,
             longitude: alarmData.longitude ? parseFloat(alarmData.longitude) : null,
             imageUrl: alarmData.imageUrl || alarmData.image_url,
+            speed: alarmData.speed !== undefined && alarmData.speed !== null ? parseFloat(alarmData.speed) : null, // Add speed
+            acceleration: alarmData.acceleration !== undefined && alarmData.acceleration !== null ? parseFloat(alarmData.acceleration) : null, // Add acceleration
             resolved: false,
             isLive: true,
             source: 'live_stream',
@@ -558,7 +572,7 @@ class EnhancedAlarmService {
     const headers = [
       'ID', 'Device ID', 'Vehicle ID', 'Type', 'Severity', 'Status', 'Message', 
       'Timestamp', 'Resolved', 'Latitude', 'Longitude', 'Source', 'Live Alarm',
-      'Alert Code', 'Priority', 'Acknowledged By', 'Resolved By'
+      'Alert Code', 'Priority', 'Acknowledged By', 'Resolved By', 'Speed', 'Acceleration'
     ];
     
     const rows = alarms.map(alarm => [
@@ -578,7 +592,9 @@ class EnhancedAlarmService {
       alarm.alertCode || '',
       alarm.priority || '',
       alarm.acknowledgedBy || '',
-      alarm.resolvedBy || ''
+      alarm.resolvedBy || '',
+      alarm.speed !== null ? alarm.speed : '',
+      alarm.acceleration !== null ? alarm.acceleration : ''
     ]);
 
     const csvContent = [headers, ...rows]

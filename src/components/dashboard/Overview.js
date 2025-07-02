@@ -131,7 +131,7 @@ const Overview = () => {
   const stats = {
     totalVehicles: data.vehicles.length,
     totalDevices: data.devices.length,
-    activeDevices: data.devices.filter(d => d.status === 'Active').length,
+    activeDevices: data.devices.filter(d => (d.status || '').toLowerCase() === 'active').length,
     devicesWithTelemetry: data.devices.filter(d => d.has_telemetry).length,
     devicesWithLocation: data.devices.filter(d => d.latitude && d.longitude).length,
     activeAlerts: data.alerts.filter(a => a.status === 'active' || !a.status).length

@@ -1,18 +1,12 @@
-// FIXED API SERVICE - Complete implementation with proper exports and manufacturer/model mapping
-// src/services/api.js
-
+import { toast } from 'react-toastify';
 import { config } from '../config/apiConfig';
 
 class ApiService {
   constructor() {
-    this.baseURL = config.API_BASE_URL;
+    this.baseURL = config.API_BASE_URL || 'http://164.52.194.198:9090';
     this.token = localStorage.getItem('authToken') || null;
     this.lastSuccessfulEndpoint = null;
   }
-
-  // ===========================================
-  // AUTHENTICATION METHODS
-  // ===========================================
 
   setToken(token) {
     this.token = token;
@@ -26,10 +20,6 @@ class ApiService {
   getToken() {
     return this.token || localStorage.getItem('authToken');
   }
-
-  // ===========================================
-  // HTTP REQUEST WRAPPER
-  // ===========================================
 
   async request(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
@@ -55,9 +45,7 @@ class ApiService {
 
     try {
       console.log(`🌐 API Request: ${finalOptions.method} ${url}`);
-      
       const response = await fetch(url, finalOptions);
-      
       console.log(`📡 Response: ${response.status} ${response.statusText}`);
 
       if (!response.ok) {
@@ -71,24 +59,17 @@ class ApiService {
 
       this.lastSuccessfulEndpoint = endpoint;
       return data;
-
     } catch (error) {
       console.error(`❌ Request failed for ${url}:`, error);
+      toast.error(`Request failed: ${error.message}`);
       throw error;
     }
   }
 
-  // ===========================================
-  // HEALTH CHECK
-  // ===========================================
-
   async healthCheck() {
     try {
       console.log('🏥 Performing health check...');
-      
-      // Try the main health endpoint first
       const response = await this.request('/health');
-      
       return {
         status: response ? 'healthy' : 'degraded',
         message: 'API is responsive via health endpoint',
@@ -97,8 +78,6 @@ class ApiService {
       };
     } catch (error) {
       console.warn('⚠️ Health check failed:', error.message);
-      
-      // Try basic connectivity test with vehicles endpoint
       try {
         const basicResponse = await fetch(`${this.baseURL}/vehicle/v1/all?page=0&size=1`, {
           method: 'GET',
@@ -107,7 +86,6 @@ class ApiService {
             ...(this.token && { Authorization: `Bearer ${this.token}` })
           }
         });
-        
         if (basicResponse.ok) {
           return {
             status: 'degraded',
@@ -119,7 +97,6 @@ class ApiService {
       } catch (e) {
         // Ignore basic test failure
       }
-      
       return {
         status: 'unhealthy',
         message: error.message || 'API is not responding',
@@ -129,49 +106,33 @@ class ApiService {
     }
   }
 
-  // ===========================================
-  // VEHICLE ENDPOINTS - COMPLETELY FIXED WITH MANUFACTURER/MODEL MAPPING
-  // ===========================================
-
   async getVehicles(page = 0, size = 20, sortBy = 'vehicleId', direction = 'asc') {
     try {
       console.log('🚗 Fetching vehicles from API...');
       const endpoint = `/vehicle/v1/all?page=${page}&size=${size}&sortBy=${sortBy}&direction=${direction}`;
       const response = await this.request(endpoint);
-      
       if (response && response.data && Array.isArray(response.data)) {
         console.log('🔍 Raw API response for vehicles:', response.data);
-        
         const transformedData = response.data.map(vehicle => {
           console.log('🔍 Processing vehicle:', vehicle);
-          
-          // CRITICAL FIX: Enhanced field mapping with multiple fallbacks
           const getFieldValue = (obj, primaryField, fallbackFields = [], defaultValue = null) => {
-            // Check primary field first
             if (obj[primaryField] !== undefined && obj[primaryField] !== null && obj[primaryField] !== '') {
               return obj[primaryField];
             }
-            
-            // Check fallback fields
             for (const fallback of fallbackFields) {
               if (obj[fallback] !== undefined && obj[fallback] !== null && obj[fallback] !== '') {
                 return obj[fallback];
               }
             }
-            
             return defaultValue;
           };
-
-          const transformed = {
+          return {
             vehicle_id: getFieldValue(vehicle, 'vehicleId', ['vehicle_id', 'id']),
             vehicle_name: getFieldValue(vehicle, 'vehicleName', ['vehicle_name', 'name']),
             vehicle_number: getFieldValue(vehicle, 'vehicleNumber', ['vehicle_number', 'license_plate', 'plateNumber']),
             vehicle_type: getFieldValue(vehicle, 'vehicleType', ['vehicle_type', 'type', 'category']),
-            
-            // CRITICAL FIX: Proper manufacturer and model mapping
             manufacturer: getFieldValue(vehicle, 'vehicleManufacturer', ['manufacturer', 'make', 'brand'], 'Unknown'),
             model: getFieldValue(vehicle, 'vehicleModel', ['vehicle_model', 'model', 'vehicleName'], 'Unknown'),
-            
             status: getFieldValue(vehicle, 'status', [], 'Active'),
             current_latitude: getFieldValue(vehicle, 'currentLatitude', ['current_latitude', 'latitude']),
             current_longitude: getFieldValue(vehicle, 'currentLongitude', ['current_longitude', 'longitude']),
@@ -180,35 +141,30 @@ class ApiService {
             created_at: getFieldValue(vehicle, 'createdAt', ['created_at']),
             updated_at: getFieldValue(vehicle, 'updatedAt', ['updated_at'])
           };
-
-          console.log('🔍 Transformed vehicle:', transformed);
-          return transformed;
         });
-        
         console.log(`✅ Successfully fetched ${transformedData.length} vehicles`);
         console.log('🔍 Sample transformed vehicle:', transformedData[0]);
-        
         return {
           success: true,
           data: transformedData,
-          totalElements: response.totalElements || transformedData.length,
-          totalPages: response.totalPages || 1,
-          currentPage: response.number || 0
+          total: response.totalElements || response.total || transformedData.length,
+          totalPages: response.totalPages || Math.ceil((response.totalElements || transformedData.length) / size),
+          currentPage: response.number || page
         };
       }
-      
       console.log('📝 No vehicles found in response');
       return {
         success: true,
         data: [],
+        total: 0,
         message: 'No vehicles found'
       };
-      
     } catch (error) {
       console.error('❌ Failed to fetch vehicles:', error);
       return {
         success: false,
         data: [],
+        total: 0,
         error: error.message,
         message: `Could not fetch vehicles: ${error.message}`
       };
@@ -220,12 +176,10 @@ class ApiService {
       console.log(`🚗 Fetching vehicle by ID: ${vehicleId}`);
       const endpoint = `/vehicle/v1/${vehicleId}`;
       const response = await this.request(endpoint);
-      
       if (response && response.data) {
         const vehicleData = Array.isArray(response.data) ? response.data : [response.data];
         const transformedData = vehicleData.map(vehicle => {
           console.log('🔍 Raw single vehicle data:', vehicle);
-          
           const getFieldValue = (obj, primaryField, fallbackFields = [], defaultValue = null) => {
             if (obj[primaryField] !== undefined && obj[primaryField] !== null && obj[primaryField] !== '') {
               return obj[primaryField];
@@ -237,7 +191,6 @@ class ApiService {
             }
             return defaultValue;
           };
-
           return {
             vehicle_id: getFieldValue(vehicle, 'vehicleId', ['vehicle_id', 'id']),
             vehicle_name: getFieldValue(vehicle, 'vehicleName', ['vehicle_name', 'name']),
@@ -254,13 +207,11 @@ class ApiService {
             updated_at: getFieldValue(vehicle, 'updatedAt', ['updated_at'])
           };
         });
-
         return {
           success: true,
           data: transformedData
         };
       }
-
       return {
         success: true,
         data: [],
@@ -279,8 +230,6 @@ class ApiService {
   async createVehicle(vehicleData) {
     try {
       console.log('📝 Creating new vehicle...', vehicleData);
-      
-      // Transform frontend data to API format
       const apiPayload = {
         vehicleNumber: vehicleData.vehicle_number,
         vehicleManufacturer: vehicleData.manufacturer,
@@ -288,14 +237,11 @@ class ApiService {
         vehicleType: vehicleData.vehicle_type,
         status: vehicleData.status || 'Active'
       };
-
       console.log('📝 API payload:', apiPayload);
-      
       const response = await this.request('/vehicle/v1/register', {
         method: 'POST',
         body: JSON.stringify(apiPayload)
       });
-      
       return {
         success: true,
         data: response.data
@@ -312,8 +258,6 @@ class ApiService {
   async updateVehicle(vehicleId, updateData) {
     try {
       console.log(`🚗 Updating vehicle ${vehicleId}...`, updateData);
-      
-      // Transform frontend data to API format
       const apiPayload = {
         vehicleNumber: updateData.vehicle_number,
         vehicleManufacturer: updateData.manufacturer,
@@ -321,14 +265,11 @@ class ApiService {
         vehicleType: updateData.vehicle_type,
         status: updateData.status || 'Active'
       };
-
       console.log('🚗 API update payload:', apiPayload);
-      
       const response = await this.request(`/vehicle/v1/update/${vehicleId}`, {
         method: 'PUT',
         body: JSON.stringify(apiPayload)
       });
-      
       return {
         success: true,
         data: response.data
@@ -348,7 +289,6 @@ class ApiService {
       const response = await this.request(`/vehicle/v1/delete/${vehicleId}`, {
         method: 'DELETE'
       });
-      
       return {
         success: true,
         data: response.data
@@ -362,23 +302,16 @@ class ApiService {
     }
   }
 
-  // ===========================================
-  // DEVICE ENDPOINTS - ENHANCED FOR COMPLETE DATA
-  // ===========================================
-
   async getDevices(page = 0, size = 20) {
     try {
       console.log('📱 Fetching devices from API...');
       const endpoint = `/device/v1/all?page=${page}&size=${size}`;
       const response = await this.request(endpoint);
-      
       if (response && response.data && Array.isArray(response.data)) {
         console.log('🔍 Raw API response for devices:', response.data);
-        
         const transformedData = response.data.map(device => {
           console.log('🔍 Processing device:', device);
-          
-          const transformed = {
+          return {
             device_id: device.deviceId || device.device_id || device.id,
             device_name: device.deviceName || device.device_name || device.name,
             device_type: device.deviceType || device.device_type || device.type,
@@ -389,7 +322,6 @@ class ApiService {
             last_updated: device.lastUpdated || device.last_updated || device.updatedAt,
             created_at: device.createdAt || device.created_at,
             updated_at: device.updatedAt || device.updated_at,
-            // Enhanced telemetry data mapping
             speed: device.speed ? parseFloat(device.speed) : null,
             acceleration: device.acceleration ? parseFloat(device.acceleration) : null,
             drowsiness: Boolean(device.drowsiness),
@@ -397,31 +329,26 @@ class ApiService {
             collision: Boolean(device.collision),
             has_telemetry: !!(device.latitude && device.longitude)
           };
-          
-          console.log('🔍 Transformed device:', transformed);
-          return transformed;
         });
-        
         console.log(`✅ Successfully fetched ${transformedData.length} devices`);
-        
         return {
           success: true,
           data: transformedData,
-          totalElements: response.totalElements || transformedData.length
+          total: response.totalElements || response.total || transformedData.length
         };
       }
-      
       return {
         success: true,
         data: [],
+        total: 0,
         message: 'No devices found'
       };
-      
     } catch (error) {
       console.error('❌ Failed to fetch devices:', error);
       return {
         success: false,
         data: [],
+        total: 0,
         error: error.message,
         message: `Could not fetch devices: ${error.message}`
       };
@@ -487,13 +414,10 @@ class ApiService {
     }
   }
 
-  // Device assignment endpoint
   async assignDevice(deviceId, vehicleId) {
     try {
       console.log(`🔗 Assigning device ${deviceId} to vehicle ${vehicleId}...`);
-      
       if (vehicleId === 'unassign' || !vehicleId) {
-        // Unassign device
         const response = await this.request(`/device/v1/unassign/${deviceId}`, {
           method: 'PUT'
         });
@@ -503,7 +427,6 @@ class ApiService {
           message: 'Device unassigned successfully'
         };
       } else {
-        // Assign device to vehicle
         const response = await this.request(`/device/v1/assign/${deviceId}/${vehicleId}`, {
           method: 'PUT'
         });
@@ -522,10 +445,6 @@ class ApiService {
     }
   }
 
-  // ===========================================
-  // TELEMETRY ENDPOINTS - COMPREHENSIVE DATA FETCHING
-  // ===========================================
-
   async getDeviceTelemetry(deviceId, page = 0, size = 10) {
     const endpoints = [
       `/device/v1/data/${deviceId}?direction=desc&page=${page}&size=${size}`,
@@ -534,18 +453,14 @@ class ApiService {
       `/telemetry/v1/device/${deviceId}`,
       `/device/v1/telemetry/${deviceId}?page=${page}&size=${size}`
     ];
-    
     try {
       console.log(`📊 Fetching telemetry for device ${deviceId}...`);
-      
       for (const endpoint of endpoints) {
         try {
           console.log(`🔄 Trying telemetry endpoint: ${endpoint}`);
           const response = await this.request(endpoint);
-          
           if (response && response.data && Array.isArray(response.data) && response.data.length > 0) {
             console.log('🔍 Raw telemetry data:', response.data);
-            
             const transformedData = response.data.map(item => ({
               device_id: deviceId,
               speed: item.speed ? parseFloat(item.speed) : null,
@@ -557,12 +472,11 @@ class ApiService {
               collision: Boolean(item.collision),
               timestamp: item.timestamp || item.createdAt || new Date().toISOString()
             }));
-            
             console.log('🔍 Transformed telemetry data:', transformedData);
-            
             return {
               success: true,
               data: transformedData,
+              total: response.totalElements || response.total || transformedData.length,
               endpoint_used: endpoint,
               message: `Found ${transformedData.length} telemetry records`
             };
@@ -572,76 +486,74 @@ class ApiService {
           continue;
         }
       }
-      
       return {
         success: false,
         data: [],
+        total: 0,
         attempted_endpoints: endpoints,
         message: `No telemetry data found for device ${deviceId}`
       };
-      
     } catch (error) {
       console.error(`❌ Failed to fetch telemetry for device ${deviceId}:`, error);
       return {
         success: false,
         data: [],
+        total: 0,
         error: error.message,
         message: `Could not fetch telemetry for device ${deviceId}: ${error.message}`
       };
     }
   }
 
-  // ===========================================
-  // ALARM/ALERT ENDPOINTS - COMPREHENSIVE DATA FETCHING
-  // ===========================================
-
-  async getManagerAlarms(page = 0, size = 50) {
+  async getManagerAlarms(page = 1, size = 20) {
     try {
       console.log('🚨 Fetching manager alarms...');
-      const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}`;
+      const endpoint = `/alarm/v1/manager/all?page=${page}&size=${size}&sortBy=alarmId&direction=desc`;
       const response = await this.request(endpoint);
-      
       if (response && response.data && Array.isArray(response.data)) {
         console.log('🔍 Raw alarm data:', response.data);
-        
         const transformedData = response.data.map(alarm => {
           console.log('🔍 Processing alarm:', alarm);
-          
           return {
-            alert_id: alarm.alarmId || alarm.alert_id || alarm.id,
-            device_id: alarm.deviceId || alarm.device_id,
-            vehicle_id: alarm.vehicleId || alarm.vehicle_id,
-            alert_type: alarm.alarmType || alarm.alert_type || alarm.type,
-            severity: alarm.severity || 'medium',
-            message: alarm.message || alarm.description,
-            timestamp: alarm.timestamp || alarm.createdAt || new Date().toISOString(),
+            alert_id: String(alarm.alarmId || alarm.alert_id || alarm.id || `alarm_${Date.now()}`),
+            device_id: String(alarm.deviceId || alarm.device_id || 'Unknown'),
+            vehicle_id: alarm.vehicleId || alarm.vehicle_id || null,
+            alert_type: alarm.alarmType || alarm.alert_type || 'Unknown',
+            severity: alarm.alarmType || alarm.severity || 'medium',
+            message: alarm.description || alarm.message || 'No description',
+            timestamp: alarm.alarmTime || alarm.timestamp || alarm.createdAt || new Date().toISOString(),
             status: alarm.status || 'active',
-            resolved: alarm.resolved || false,
+            resolved: Boolean(alarm.resolved),
             latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-            longitude: alarm.longitude ? parseFloat(alarm.longitude) : null
+            longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
+            imageUrl: alarm.previewUrl || alarm.imageUrl || null,
+             speed: alarm.speed !== undefined ? alarm.speed : null,
+             acceleration: alarm.acceleration !== undefined ? alarm.acceleration : null,
+             drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
+             rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+             collision: alarm.collision !== undefined ? alarm.collision : null
           };
         });
-        
         console.log(`✅ Successfully fetched ${transformedData.length} alarms`);
         console.log('🔍 Transformed alarm data:', transformedData);
-        
         return {
           success: true,
-          data: transformedData
+          data: transformedData,
+          total: response.totalElements || response.total || transformedData.length
         };
       }
-      
       return {
         success: true,
         data: [],
+        total: 0,
         message: 'No alarms found'
       };
-      
     } catch (error) {
       console.error('❌ Failed to fetch alarms:', error);
       return {
         success: false,
         data: [],
+        total: 0,
         error: error.message,
         message: `Could not fetch alarms: ${error.message}`
       };
@@ -653,20 +565,38 @@ class ApiService {
       console.log(`🚨 Fetching alarms for device ${deviceId}...`);
       const endpoint = `/alarm/v1/device/${deviceId}?page=${page}&size=${size}`;
       const response = await this.request(endpoint);
-      
       if (response && response.data) {
         const alarmData = Array.isArray(response.data) ? response.data : [response.data];
         console.log('🔍 Device alarm data:', alarmData);
-        
+        const transformedData = alarmData.map(alarm => ({
+          alert_id: String(alarm.alarmId || alarm.alert_id || alarm.id || `alarm_${Date.now()}`),
+          device_id: String(alarm.deviceId || alarm.device_id || 'Unknown'),
+          vehicle_id: alarm.vehicleId || alarm.vehicle_id || null,
+          alert_type: alarm.alarmType || alarm.alert_type || 'Unknown',
+          severity: alarm.alarmType || alarm.severity || 'medium',
+          message: alarm.description || alarm.message || 'No description',
+          timestamp: alarm.alarmTime || alarm.timestamp || alarm.createdAt || new Date().toISOString(),
+          status: alarm.status || 'active',
+          resolved: Boolean(alarm.resolved),
+          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
+          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
+          imageUrl: alarm.previewUrl || alarm.imageUrl || null,
+           speed: alarm.speed !== undefined ? alarm.speed : null,
+          acceleration: alarm.acceleration !== undefined ? alarm.acceleration : null,
+          drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
+           rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+           collision: alarm.collision !== undefined ? alarm.collision : null
+        }));
         return {
           success: true,
-          data: alarmData
+          data: transformedData,
+          total: response.totalElements || response.total || transformedData.length
         };
       }
-      
       return {
         success: true,
         data: [],
+        total: 0,
         message: 'No alarms found for device'
       };
     } catch (error) {
@@ -674,14 +604,51 @@ class ApiService {
       return {
         success: false,
         data: [],
+        total: 0,
         error: error.message
       };
     }
   }
 
-  // ===========================================
-  // AUTH ENDPOINTS - NO MOCK DATA
-  // ===========================================
+  async acknowledgeAlarm(alarmId) {
+    try {
+      console.log(`🚨 Acknowledging alarm ${alarmId}...`);
+      const endpoint = `/alarm/v1/manager/${alarmId}/acknowledge`; // Placeholder
+      const response = await this.request(endpoint, {
+        method: 'POST'
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Failed to acknowledge alarm ${alarmId}:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async resolveAlarm(alarmId) {
+    try {
+      console.log(`🚨 Resolving alarm ${alarmId}...`);
+      const endpoint = `/alarm/v1/manager/${alarmId}/resolve`; // Placeholder
+      const response = await this.request(endpoint, {
+        method: 'POST'
+      });
+      return {
+        success: true,
+        data: response.data
+      };
+    } catch (error) {
+      console.error(`❌ Failed to resolve alarm ${alarmId}:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 
   async login(email, password) {
     try {
@@ -690,11 +657,9 @@ class ApiService {
         method: 'POST',
         body: JSON.stringify({ email, password })
       });
-      
       if (response && response.data && response.data.token) {
         this.setToken(response.data.token);
         console.log('✅ Login successful');
-        
         return {
           success: true,
           data: response.data,
@@ -702,7 +667,6 @@ class ApiService {
           token: response.data.token
         };
       }
-      
       return {
         success: false,
         message: 'Invalid login response'
@@ -734,40 +698,32 @@ class ApiService {
     }
   }
 
-  // ===========================================
-  // ADDITIONAL ENDPOINTS FOR COMPREHENSIVE DATA
-  // ===========================================
-
   async getAllData(page = 0, size = 20) {
     try {
       console.log('🌍 Fetching all data from API...');
-      
       const [vehiclesResult, devicesResult, alarmsResult] = await Promise.allSettled([
         this.getVehicles(page, size),
         this.getDevices(page, size),
         this.getManagerAlarms(page, size)
       ]);
-      
       return {
-        vehicles: vehiclesResult.status === 'fulfilled' ? vehiclesResult.value : { success: false, data: [] },
-        devices: devicesResult.status === 'fulfilled' ? devicesResult.value : { success: false, data: [] },
-        alarms: alarmsResult.status === 'fulfilled' ? alarmsResult.value : { success: false, data: [] }
+        vehicles: vehiclesResult.status === 'fulfilled' ? vehiclesResult.value : { success: false, data: [], total: 0 },
+        devices: devicesResult.status === 'fulfilled' ? devicesResult.value : { success: false, data: [], total: 0 },
+        alarms: alarmsResult.status === 'fulfilled' ? alarmsResult.value : { success: false, data: [], total: 0 }
       };
     } catch (error) {
       console.error('❌ Failed to fetch all data:', error);
       return {
-        vehicles: { success: false, data: [] },
-        devices: { success: false, data: [] },
-        alarms: { success: false, data: [] }
+        vehicles: { success: false, data: [], total: 0 },
+        devices: { success: false, data: [], total: 0 },
+        alarms: { success: false, data: [], total: 0 }
       };
     }
   }
 }
 
-// Create and export single instance - CRITICAL FIX
 const apiService = new ApiService();
 
-// Make sure all methods are bound to the instance
 Object.getOwnPropertyNames(ApiService.prototype).forEach(method => {
   if (method !== 'constructor' && typeof apiService[method] === 'function') {
     apiService[method] = apiService[method].bind(apiService);
