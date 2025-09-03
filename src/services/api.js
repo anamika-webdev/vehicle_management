@@ -720,6 +720,40 @@ class ApiService {
       };
     }
   }
+
+  // New Admin Functions
+  async getTrips() {
+    // Mock data - replace with your API call
+    return Promise.resolve({
+      success: true,
+      data: [
+        { id: 1, vehicle: 'HR-26-1234', driver: 'Arjun Sharma', shiftTime: '9:00 AM', latitude: 28.4595, longitude: 77.0266 },
+        { id: 2, vehicle: 'DL-1C-5678', driver: 'Rohan Mehra', shiftTime: '10:00 AM', latitude: 28.6139, longitude: 77.2090 },
+      ],
+    });
+  }
+
+  async getSosAlerts() {
+    // Mock data - replace with your API call
+    return Promise.resolve({
+      success: true,
+      data: [
+        { id: 1, driver: 'Arjun Sharma', message: 'Engine trouble' },
+        { id: 2, driver: 'Rohan Mehra', message: 'Medical emergency' },
+      ],
+    });
+  }
+
+  async getDriverFeedback() {
+    // Mock data - replace with your API call
+    return Promise.resolve({
+      success: true,
+      data: [
+        { id: 1, employee: 'Priya Patel', driver: 'Arjun Sharma', feedback: 'Excellent and safe driver!', rating: 5 },
+        { id: 2, employee: 'Sameer Verma', driver: 'Rohan Mehra', feedback: 'A bit of a rough ride.', rating: 3 },
+      ],
+    });
+  }
 }
 
 const apiService = new ApiService();

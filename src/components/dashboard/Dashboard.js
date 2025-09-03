@@ -660,6 +660,8 @@ const Dashboard = () => {
             onBack={handleBackFromDeviceDetails} 
           />
         ); 
+      case 'admin':
+        return <AdminDashboard />;
       default:
         return <Overview onViewVehicle={handleViewVehicle} />;
     }
@@ -851,8 +853,8 @@ const Dashboard = () => {
                     <img 
                       src={selectedAlarmForView.imageUrl} 
                       alt="Alarm" 
-                      className="object-cover w-full h-48 border rounded"
-                      onError={(e) => e.target.style.display = 'none'}
+                      className="object-cover w-full h-48 border rounded" 
+                      onError={(e) => e.target.style.display = 'none'} 
                     />
                   </div>
                 )}
@@ -881,7 +883,7 @@ const Dashboard = () => {
       <div className="fixed z-50 bottom-4 right-4">
         <div className="space-y-2">
           {/* Simple Sound Test Button */}
-        {/*  <button 
+        {/* <button 
             onClick={() => {
               console.log('🔊 Testing simple buzzer sound...');
               playAlarmSound().then(() => {
