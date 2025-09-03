@@ -47,6 +47,10 @@ const AdminDashboard = () => {
     setImageModalOpen(true);
   };
 
+  const handleCallDriver = (phoneNumber) => {
+    window.location.href = `tel:${phoneNumber}`;
+  };
+
   const handleSaveTrip = async (updatedTrip) => {
     setTrips(trips.map((trip) => (trip.id === updatedTrip.id ? updatedTrip : trip)));
     await apiService.updateTrip(updatedTrip);
@@ -78,7 +82,7 @@ const AdminDashboard = () => {
             <div className="flex items-center space-x-2">
               <button onClick={() => handleEditTrip(trip)} className="p-2 text-blue-600 rounded-full hover:bg-blue-100"><Edit className="w-5 h-5" /></button>
               <button onClick={() => handleViewLocation(trip)} className="p-2 text-green-600 rounded-full hover:bg-green-100"><MapPin className="w-5 h-5" /></button>
-              <button className="p-2 text-gray-600 rounded-full hover:bg-gray-100"><Phone className="w-5 h-5" /></button>
+              <button onClick={() => handleCallDriver(trip.phone)} className="p-2 text-gray-600 rounded-full hover:bg-gray-100"><Phone className="w-5 h-5" /></button>
             </div>
           </div>
         </div>
@@ -98,11 +102,14 @@ const AdminDashboard = () => {
               <p><strong>Vehicle:</strong> {alert.vehicle}</p>
               <p><strong>Message:</strong> {alert.message}</p>
             </div>
-            {alert.imageUrl && (
-              <button onClick={() => handleViewImage(alert)} className="p-2 text-purple-600 rounded-full hover:bg-purple-100">
-                <ImageIcon className="w-5 h-5" />
-              </button>
-            )}
+            <div className="flex items-center space-x-2">
+              {alert.imageUrl && (
+                <button onClick={() => handleViewImage(alert)} className="p-2 text-purple-600 rounded-full hover:bg-purple-100">
+                  <ImageIcon className="w-5 h-5" />
+                </button>
+              )}
+              <button onClick={() => handleCallDriver(alert.phone)} className="p-2 text-red-600 rounded-full hover:bg-red-100"><Phone className="w-5 h-5" /></button>
+            </div>
           </div>
         </div>
       ))}
@@ -117,7 +124,7 @@ const AdminDashboard = () => {
           <div className="flex justify-between">
             <div>
               <p><strong>From:</strong> {fb.employee}</p>
-              <p><strong>Driver:</strong> {fb.driver}</p>
+              <p><strong>Driver:</strong> {fb.driver} ({fb.phone})</p>
             </div>
             <div>
               {renderRating(fb.rating)}
