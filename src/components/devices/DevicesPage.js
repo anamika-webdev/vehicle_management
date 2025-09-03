@@ -1,14 +1,11 @@
-// File: src/components/devices/DevicesPage.js
-// Complete Implementation with Enhanced Telemetry Fetching and Map Display
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { 
   Shield, Activity, AlertTriangle, RefreshCw, Search,
-  MapPin, Navigation, Settings, Eye, Clock, Zap, Map
+  MapPin, Navigation, Eye, Clock, Map
 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { useNotification } from '../../components/notifications/RealTimeNotificationSystem';
-import { formatDateTime, timeAgo } from '../../utils/helpers';
+import { timeAgo } from '../../utils/helpers';
 import apiService from '../../services/api';
 import Modal from '../common/Modal';
 import EnhancedDeviceMap from '../tracking/EnhancedDeviceMap';
@@ -21,6 +18,7 @@ const DevicesPage = ({ onViewDevice }) => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
   const [deviceTelemetryData, setDeviceTelemetryData] = useState({});
+  const [deviceDetails, setDeviceDetails] = useState({});
   
   // Route Modal State with Enhanced Tracking
   const [showRouteModal, setShowRouteModal] = useState(false);
@@ -32,93 +30,308 @@ const DevicesPage = ({ onViewDevice }) => {
   // Get devices from data context
   const devices = data?.devices || [];
   const vehicles = data?.vehicles || [];
-  const localDevices = Array.isArray(devices) ? devices : [];
+  
+  // Memoize localDevices to prevent unnecessary re-renders
+  const localDevices = useMemo(() => {
+    return Array.isArray(devices) ? devices : [];
+  }, [devices]);
+  
   const hasDevices = localDevices.length > 0;
 
-  // Enhanced telemetry data fetching with comprehensive API endpoints
+  // Fetch detailed device information including status
+  useEffect(() => {
+    const fetchDeviceDetails = async () => {
+      if (localDevices.length === 0) return;
+      
+      console.log('🔍 Fetching detailed device information for all devices...', localDevices.map(d => d.device_id));
+      
+      const deviceDetailsPromises = localDevices.map(async (device) => {
+        const currentDeviceId = device.device_id || device.deviceId || device.id;
+        
+        if (!currentDeviceId) {
+          console.warn(`❌ No valid device ID for device:`, device);
+          return { deviceId: currentDeviceId || 'unknown', success: false, reason: 'No valid device ID' };
+        }
+        
+        try {
+          console.log(`📱 Fetching details for device: ${currentDeviceId}`);
+          
+          // Use your specific device API endpoint
+          const deviceEndpoint = `/device/v1/${currentDeviceId}`;
+          
+          console.log(`🔍 Using device endpoint: ${deviceEndpoint}`);
+          const response = await apiService.request(deviceEndpoint);
+          
+          if (response && response.success && response.data) {
+            const deviceDetail = response.data;
+            console.log(`✅ Device details found for ${currentDeviceId}:`, deviceDetail);
+            
+            return {
+              deviceId: currentDeviceId,
+              success: true,
+              endpoint: deviceEndpoint,
+              details: {
+                device_id: deviceDetail.deviceId || deviceDetail.device_id || currentDeviceId,
+                device_name: deviceDetail.deviceName || deviceDetail.device_name || deviceDetail.name,
+                device_type: deviceDetail.deviceType || deviceDetail.device_type || deviceDetail.type,
+                status: deviceDetail.status || 'Unknown',
+                vehicle_id: deviceDetail.vehicleId || deviceDetail.vehicle_id,
+                last_updated: deviceDetail.lastUpdated || deviceDetail.last_updated || deviceDetail.updatedAt,
+                created_at: deviceDetail.createdAt || deviceDetail.created_at,
+                updated_at: deviceDetail.updatedAt || deviceDetail.updated_at,
+                latitude: deviceDetail.latitude ? parseFloat(deviceDetail.latitude) : null,
+                longitude: deviceDetail.longitude ? parseFloat(deviceDetail.longitude) : null,
+                speed: deviceDetail.speed ? parseFloat(deviceDetail.speed) : null,
+                acceleration: deviceDetail.acceleration ? parseFloat(deviceDetail.acceleration) : null,
+                drowsiness: Boolean(deviceDetail.drowsiness),
+                rash_driving: Boolean(deviceDetail.rashDriving || deviceDetail.rash_driving),
+                collision: Boolean(deviceDetail.collision),
+                raw_data: deviceDetail
+              }
+            };
+          } else {
+            console.error(`❌ No device details found for ${currentDeviceId} from ${deviceEndpoint}:`, response);
+            return { deviceId: currentDeviceId, success: false, reason: 'No device details found in API response' };
+          }
+        } catch (error) {
+          console.error(`❌ Failed to fetch device details for ${currentDeviceId}:`, error);
+          return { deviceId: currentDeviceId, success: false, reason: error.message };
+        }
+      });
+
+      try {
+        const results = await Promise.all(deviceDetailsPromises);
+        const detailsMap = {};
+        
+        console.log('📊 Device details fetch results:', results);
+        
+        results.forEach(result => {
+          if (result.success) {
+            detailsMap[result.deviceId] = result.details;
+            console.log(`✅ Device details stored for ${result.deviceId}`);
+          } else {
+            console.error(`❌ Device details fetch failed for ${result.deviceId}:`, result.reason);
+            detailsMap[result.deviceId] = null;
+          }
+        });
+        
+        setDeviceDetails(detailsMap);
+        console.log(`📋 Final device details map:`, detailsMap);
+        console.log(`✅ Device details fetched for ${Object.keys(detailsMap).filter(id => detailsMap[id]).length}/${localDevices.length} devices`);
+      } catch (error) {
+        console.error('❌ Error in device details batch processing:', error);
+      }
+    };
+
+    fetchDeviceDetails();
+  }, [localDevices]);
+
+  // Enhanced telemetry data fetching with strict validation
   useEffect(() => {
     const fetchDeviceTelemetryData = async () => {
       if (localDevices.length === 0) return;
       
-      console.log('🔍 Fetching telemetry data for all devices to enable GPS tracking...');
+      console.log('🔍 Fetching telemetry data for all devices...');
       
       const telemetryPromises = localDevices.map(async (device) => {
         const currentDeviceId = device.device_id || device.deviceId || device.id;
         
         if (!currentDeviceId) {
-          return { deviceId: device.device_id || 'unknown', success: false };
+          console.warn(`No valid device ID for device:`, device);
+          return { deviceId: currentDeviceId || 'unknown', success: false, reason: 'No valid device ID' };
         }
         
         try {
-          const endpoints = [
-            () => apiService.getDeviceTelemetry(currentDeviceId, 0, 1),
-            () => apiService.getLatestDeviceTelemetry(currentDeviceId),
-            () => apiService.request(`/device/v1/data/${currentDeviceId}?direction=desc&size=1`),
-            () => apiService.request(`/deviceTelemetry/v1/device/${currentDeviceId}?page=0&size=1`)
-          ];
+          // Use your specific telemetry API endpoint
+          console.log(`🔍 Fetching telemetry for device ${currentDeviceId} using correct API endpoint`);
           
-          for (const endpointFn of endpoints) {
-            try {
-              const response = await endpointFn();
-              
-              let telemetryData = null;
-              if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-                telemetryData = response.data[0];
-              } else if (response.data && !Array.isArray(response.data)) {
-                telemetryData = response.data;
-              }
-              
-              if (telemetryData && telemetryData.latitude && telemetryData.longitude) {
-                return {
-                  deviceId: currentDeviceId,
-                  success: true,
-                  telemetry: {
-                    latitude: parseFloat(telemetryData.latitude),
-                    longitude: parseFloat(telemetryData.longitude),
-                    speed: telemetryData.speed ? parseFloat(telemetryData.speed) : 0,
-                    acceleration: telemetryData.acceleration ? parseFloat(telemetryData.acceleration) : 0,
-                    heading: telemetryData.heading ? parseFloat(telemetryData.heading) : 0,
-                    timestamp: telemetryData.timestamp || new Date().toISOString(),
-                    telemetry_id: telemetryData.id || telemetryData.telemetry_id || Date.now(),
-                    drowsiness: Boolean(telemetryData.drowsiness),
-                    rash_driving: Boolean(telemetryData.rash_driving || telemetryData.rashDriving),
-                    collision: Boolean(telemetryData.collision)
-                  }
-                };
-              }
-            } catch (endpointError) {
-              console.warn(`Endpoint failed for device ${currentDeviceId}:`, endpointError.message);
-              continue;
+          const telemetryEndpoint = `/device/v1/data/${currentDeviceId}?page=0&size=1&sortBy=telemetryId&direction=desc`;
+          
+          try {
+            const response = await apiService.request(telemetryEndpoint);
+            
+            let telemetryData = null;
+            if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+              telemetryData = response.data[0];
+              console.log(`✅ Telemetry data found for device ${currentDeviceId}:`, telemetryData);
+            } else if (response.data && !Array.isArray(response.data)) {
+              telemetryData = response.data;
+              console.log(`✅ Telemetry object data found for device ${currentDeviceId}:`, telemetryData);
+            } else {
+              console.warn(`⚠️ No telemetry data returned for device ${currentDeviceId}:`, response);
+              return { deviceId: currentDeviceId, success: false, reason: 'No telemetry data in response' };
             }
+            
+            // Check if telemetry data has required fields
+            if (!telemetryData || !telemetryData.latitude || !telemetryData.longitude) {
+              console.warn(`⚠️ Invalid GPS data for device ${currentDeviceId}:`, { 
+                hasData: !!telemetryData, 
+                hasLat: !!telemetryData?.latitude,
+                hasLng: !!telemetryData?.longitude,
+                data: telemetryData
+              });
+              return { deviceId: currentDeviceId, success: false, reason: 'Invalid GPS coordinates' };
+            }
+            
+            // Check timestamp (logTime or timestamp)
+            const timestamp = telemetryData.logTime || telemetryData.timestamp;
+            if (!timestamp) {
+              console.warn(`⚠️ No timestamp/logTime for device ${currentDeviceId}:`, telemetryData);
+              return { deviceId: currentDeviceId, success: false, reason: 'No timestamp in telemetry data' };
+            }
+            
+            const parsedTimestamp = new Date(timestamp);
+            if (isNaN(parsedTimestamp.getTime())) {
+              console.warn(`⚠️ Invalid timestamp for device ${currentDeviceId}:`, timestamp);
+              return { deviceId: currentDeviceId, success: false, reason: 'Invalid timestamp format' };
+            }
+            
+            console.log(`✅ Valid telemetry found for device ${currentDeviceId}`);
+            
+            return {
+              deviceId: currentDeviceId,
+              success: true,
+              telemetry: {
+                latitude: parseFloat(telemetryData.latitude),
+                longitude: parseFloat(telemetryData.longitude),
+                speed: telemetryData.speed ? parseFloat(telemetryData.speed) : 0,
+                acceleration: telemetryData.acceleration ? parseFloat(telemetryData.acceleration) : 0,
+                heading: telemetryData.heading ? parseFloat(telemetryData.heading) : 0,
+                timestamp: timestamp,
+                logTime: telemetryData.logTime,
+                telemetry_id: telemetryData.telemetryId || telemetryData.id || Date.now(),
+                drowsiness: Boolean(telemetryData.drowsiness),
+                rash_driving: Boolean(telemetryData.rash_driving || telemetryData.rashDriving),
+                collision: Boolean(telemetryData.collision),
+                raw_data: telemetryData
+              }
+            };
+          } catch (endpointError) {
+            console.error(`❌ Telemetry API failed for device ${currentDeviceId}:`, endpointError.message);
+            return { deviceId: currentDeviceId, success: false, reason: `API Error: ${endpointError.message}` };
           }
         } catch (error) {
           console.warn(`Failed to fetch telemetry for device ${currentDeviceId}:`, error.message);
+          return { deviceId: currentDeviceId, success: false, reason: error.message };
         }
-        
-        return { deviceId: currentDeviceId, success: false };
       });
 
       try {
         const results = await Promise.all(telemetryPromises);
         const telemetryMap = {};
         
+        console.log('📊 Telemetry fetch results for all devices:', results);
+        
         results.forEach(result => {
           if (result.success) {
             telemetryMap[result.deviceId] = result.telemetry;
+            console.log(`✅ Telemetry stored for device ${result.deviceId}:`, result.telemetry);
+          } else {
+            console.error(`❌ Telemetry fetch failed for device ${result.deviceId}:`, result.reason);
+            telemetryMap[result.deviceId] = null;
           }
         });
         
         setDeviceTelemetryData(telemetryMap);
-        console.log(`✅ Telemetry data fetched for ${Object.keys(telemetryMap).length} devices with GPS data`);
+        console.log(`📋 Final telemetry map:`, telemetryMap);
+        console.log(`✅ Telemetry data fetched for ${Object.keys(telemetryMap).filter(id => telemetryMap[id]).length}/${localDevices.length} devices`);
       } catch (error) {
-        console.error('❌ Error fetching telemetry data:', error);
+        console.error('❌ Error in telemetry batch processing:', error);
       }
     };
 
     fetchDeviceTelemetryData();
   }, [localDevices]);
 
-  // Enhanced route icon click handler with comprehensive telemetry fetching
+  // Get device status based on API device status AND recent telemetry data
+  const getDeviceStatus = useCallback((device) => {
+    const currentDeviceId = device.device_id || device.deviceId || device.id;
+    const telemetry = deviceTelemetryData[currentDeviceId] || null;
+    const deviceDetail = deviceDetails[currentDeviceId] || null;
+    const now = new Date();
+    
+    // First check if device is deactivated from API
+    const apiStatus = deviceDetail?.status || device.status || 'unknown';
+    const isDeviceActive = apiStatus && (apiStatus.toLowerCase() === 'active' || apiStatus.toLowerCase() === 'online');
+    
+    // Check if we have valid recent telemetry data
+    const hasTelemetry = telemetry && 
+                        telemetry.latitude && 
+                        telemetry.longitude && 
+                        (telemetry.logTime || telemetry.timestamp) &&
+                        !isNaN(parseFloat(telemetry.latitude)) && 
+                        !isNaN(parseFloat(telemetry.longitude));
+    
+    const timestamp = telemetry?.logTime || telemetry?.timestamp;
+    const parsedTimestamp = timestamp ? new Date(timestamp) : null;
+    const isTimestampValid = parsedTimestamp && !isNaN(parsedTimestamp.getTime());
+    
+    // Check if telemetry is recent (within last 10 minutes)
+    const TELEMETRY_FRESHNESS_MINUTES = 10;
+    const isTelemetryRecent = isTimestampValid 
+      ? (now - parsedTimestamp) / (1000 * 60) <= TELEMETRY_FRESHNESS_MINUTES 
+      : false;
+    
+    // Debug logging with more detail
+    console.log('🔍 Device status debug for device:', currentDeviceId, {
+      device_data: device,
+      device_detail: deviceDetail,
+      telemetry_data: telemetry,
+      apiStatus,
+      isDeviceActive,
+      hasTelemetry,
+      isTelemetryRecent,
+      timestamp, 
+      parsedTimestamp: isTimestampValid ? parsedTimestamp.toISOString() : 'Invalid',
+      minutesOld: isTimestampValid ? ((now - parsedTimestamp) / (1000 * 60)).toFixed(2) : 'N/A'
+    });
+
+    // Device is Active only if:
+    // 1. API status shows device as active AND
+    // 2. Has valid recent telemetry data
+    if (isDeviceActive && hasTelemetry && isTelemetryRecent && isTimestampValid) {
+      return { 
+        color: 'green', 
+        text: 'Active', 
+        icon: '📍',
+        tooltip: `Device is active and sending recent telemetry data. Last update: ${parsedTimestamp.toLocaleString()}`,
+        lastUpdate: parsedTimestamp
+      };
+    } 
+    // Device has telemetry but it's old or device is deactivated
+    else if (!isDeviceActive) {
+      return { 
+        color: 'red', 
+        text: 'Deactivated', 
+        icon: '🔴',
+        tooltip: `Device has been deactivated. API Status: ${apiStatus}`,
+        lastUpdate: parsedTimestamp
+      };
+    }
+    // Device is active but no recent telemetry
+    else if (isDeviceActive && (!hasTelemetry || !isTelemetryRecent)) {
+      const reason = !hasTelemetry ? 'No telemetry data' : 'Telemetry data is old';
+      return { 
+        color: 'orange', 
+        text: 'No Signal', 
+        icon: '📶',
+        tooltip: `Device is active but ${reason.toLowerCase()}. ${isTimestampValid ? `Last telemetry: ${parsedTimestamp.toLocaleString()}` : 'No valid timestamp'}`,
+        lastUpdate: parsedTimestamp
+      };
+    }
+    // Default inactive state
+    else {
+      return { 
+        color: 'gray', 
+        text: 'Inactive', 
+        icon: '⚠️',
+        tooltip: `Device status unknown. API Status: ${apiStatus}`,
+        lastUpdate: parsedTimestamp
+      };
+    }
+  }, [deviceTelemetryData, deviceDetails]);
+
+  // Enhanced route icon click handler
   const handleRouteClick = async (device) => {
     console.log('🗺️ Route icon clicked for device:', device.device_id);
     
@@ -126,54 +339,56 @@ const DevicesPage = ({ onViewDevice }) => {
       const associatedVehicle = vehicles.find(v => v.vehicle_id === device.vehicle_id);
       const currentDeviceId = device.device_id || device.deviceId || device.id;
       
-      let telemetryResponse = null;
-      const endpoints = [
-        () => apiService.getDeviceTelemetry(currentDeviceId, 0, 50),
-        () => apiService.request(`/device/v1/data/${currentDeviceId}?direction=desc&size=50`),
-        () => apiService.request(`/deviceTelemetry/v1/device/${currentDeviceId}?page=0&size=50`)
-      ];
+      // Use your specific telemetry API endpoint for route data
+      const telemetryEndpoint = `/device/v1/data/${currentDeviceId}?page=0&size=50&sortBy=telemetryId&direction=desc`;
       
-      for (const endpointFn of endpoints) {
-        try {
-          const response = await endpointFn();
-          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-            telemetryResponse = response;
-            break;
-          } else if (response.data && !Array.isArray(response.data) && response.data.latitude) {
-            telemetryResponse = { success: true, data: [response.data] };
-            break;
-          }
-        } catch (endpointError) {
-          console.warn(`Telemetry endpoint failed:`, endpointError.message);
-          continue;
+      let telemetryResponse = null;
+      try {
+        console.log(`🔍 Fetching route telemetry from: ${telemetryEndpoint}`);
+        const response = await apiService.request(telemetryEndpoint);
+        
+        if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+          telemetryResponse = response;
+          console.log(`✅ Route telemetry data found for device ${currentDeviceId}:`, response.data.length, 'points');
+        } else {
+          console.warn(`⚠️ No route telemetry data for device ${currentDeviceId}:`, response);
         }
+      } catch (endpointError) {
+        console.error(`❌ Route telemetry API failed for device ${currentDeviceId}:`, endpointError.message);
       }
       
       if (!telemetryResponse || !telemetryResponse.success || !telemetryResponse.data || telemetryResponse.data.length === 0) {
-        showError('No Telemetry Data', `No GPS telemetry data available for device ${device.device_name || currentDeviceId}. Please ensure the device is online and sending location data.`);
+        showError('No Telemetry Data', `No GPS telemetry data available for device ${device.device_name || currentDeviceId}.`);
         return;
       }
 
       const latestTelemetry = telemetryResponse.data[0];
       
-      if (!latestTelemetry.latitude || !latestTelemetry.longitude) {
-        showError('Invalid Location', `Device ${device.device_name || currentDeviceId} does not have valid GPS coordinates in the latest telemetry data.`);
+      if (!latestTelemetry.latitude || !latestTelemetry.longitude || !latestTelemetry.logTime) {
+        showError('Invalid Location', `Device ${device.device_name || currentDeviceId} does not have valid GPS or logTime.`);
+        return;
+      }
+
+      const parsedTimestamp = new Date(latestTelemetry.logTime);
+      if (isNaN(parsedTimestamp.getTime())) {
+        showError('Invalid Timestamp', `Device ${device.device_name || currentDeviceId} has an invalid logTime.`);
         return;
       }
 
       const sortedTelemetry = telemetryResponse.data
-        .filter(point => point.latitude && point.longitude && !isNaN(parseFloat(point.latitude)) && !isNaN(parseFloat(point.longitude)))
+        .filter(point => point.latitude && point.longitude && point.logTime && !isNaN(parseFloat(point.latitude)) && !isNaN(parseFloat(point.longitude)))
         .map(point => ({
           latitude: parseFloat(point.latitude),
           longitude: parseFloat(point.longitude),
-          timestamp: point.timestamp || new Date().toISOString(),
+          timestamp: point.logTime,
+          logTime: point.logTime,
           speed: parseFloat(point.speed || 0),
           heading: parseFloat(point.heading || 0),
           drowsiness: Boolean(point.drowsiness),
           rash_driving: Boolean(point.rash_driving || point.rashDriving),
           collision: Boolean(point.collision)
         }))
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+        .sort((a, b) => new Date(a.logTime) - new Date(b.logTime));
 
       if (sortedTelemetry.length === 0) {
         showError('No Valid Route Data', `No valid GPS points available for device ${device.device_name || currentDeviceId}.`);
@@ -189,8 +404,9 @@ const DevicesPage = ({ onViewDevice }) => {
         speed: parseFloat(latestTelemetry.speed || 0),
         heading: parseFloat(latestTelemetry.heading || 0),
         acceleration: parseFloat(latestTelemetry.acceleration || 0),
-        telemetry_timestamp: latestTelemetry.timestamp || new Date().toISOString(),
-        telemetry_id: latestTelemetry.id || latestTelemetry.telemetry_id || Date.now(),
+        telemetry_timestamp: latestTelemetry.logTime,
+        logTime: latestTelemetry.logTime,
+        telemetry_id: latestTelemetry.telemetryId || latestTelemetry.id || Date.now(),
         drowsiness: Boolean(latestTelemetry.drowsiness),
         rash_driving: Boolean(latestTelemetry.rash_driving || latestTelemetry.rashDriving),
         collision: Boolean(latestTelemetry.collision),
@@ -206,7 +422,7 @@ const DevicesPage = ({ onViewDevice }) => {
         startAutomaticTracking(enhancedDevice);
       }, 1000);
       
-      console.log('✅ Route modal opened with enhanced device data and route points:', enhancedDevice);
+      console.log('✅ Route modal opened with enhanced device data:', enhancedDevice);
       
     } catch (error) {
       console.error('❌ Error getting device route data:', error);
@@ -214,7 +430,7 @@ const DevicesPage = ({ onViewDevice }) => {
     }
   };
 
-  // Start automatic tracking with enhanced telemetry fetching
+  // Start automatic tracking
   const startAutomaticTracking = useCallback((device) => {
     if (realtimeTracking) return;
     
@@ -225,30 +441,33 @@ const DevicesPage = ({ onViewDevice }) => {
       try {
         const currentDeviceId = device.device_id;
         
-        let latestTelemetry = null;
-        const endpoints = [
-          () => apiService.getDeviceTelemetry(currentDeviceId, 0, 1),
-          () => apiService.getLatestDeviceTelemetry(currentDeviceId),
-          () => apiService.request(`/device/v1/data/${currentDeviceId}?direction=desc&size=1`)
-        ];
+        // Use your specific telemetry API endpoint for real-time tracking
+        const telemetryEndpoint = `/device/v1/data/${currentDeviceId}?page=0&size=1&sortBy=telemetryId&direction=desc`;
         
-        for (const endpointFn of endpoints) {
-          try {
-            const response = await endpointFn();
-            if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-              latestTelemetry = response.data[0];
-              break;
-            } else if (response.data && !Array.isArray(response.data) && response.data.latitude) {
-              latestTelemetry = response.data;
-              break;
-            }
-          } catch (endpointError) {
-            continue;
+        let latestTelemetry = null;
+        try {
+          const response = await apiService.request(telemetryEndpoint);
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            latestTelemetry = response.data[0];
+            console.log(`✅ Real-time telemetry updated for device ${currentDeviceId}:`, latestTelemetry);
+          } else if (response.data && !Array.isArray(response.data) && response.data.latitude) {
+            latestTelemetry = response.data;
+            console.log(`✅ Real-time telemetry object for device ${currentDeviceId}:`, latestTelemetry);
+          } else {
+            console.warn(`⚠️ No real-time telemetry for device ${currentDeviceId}:`, response);
           }
+        } catch (endpointError) {
+          console.error(`❌ Real-time telemetry API failed for device ${currentDeviceId}:`, endpointError.message);
         }
         
-        if (latestTelemetry && latestTelemetry.latitude && latestTelemetry.longitude) {
-          const currentTelemetryId = latestTelemetry.id || latestTelemetry.telemetry_id || latestTelemetry.timestamp;
+        if (latestTelemetry && latestTelemetry.latitude && latestTelemetry.longitude && latestTelemetry.logTime) {
+          const parsedTimestamp = new Date(latestTelemetry.logTime);
+          if (isNaN(parsedTimestamp.getTime())) {
+            console.warn(`Invalid tracking logTime for device ${currentDeviceId}:`, latestTelemetry.logTime);
+            return;
+          }
+          
+          const currentTelemetryId = latestTelemetry.telemetryId || latestTelemetry.id || latestTelemetry.logTime;
           const previousTelemetryId = device.telemetry_id;
           
           if (currentTelemetryId !== previousTelemetryId) {
@@ -259,7 +478,8 @@ const DevicesPage = ({ onViewDevice }) => {
               speed: parseFloat(latestTelemetry.speed || 0),
               heading: parseFloat(latestTelemetry.heading || 0),
               acceleration: parseFloat(latestTelemetry.acceleration || 0),
-              telemetry_timestamp: latestTelemetry.timestamp || new Date().toISOString(),
+              telemetry_timestamp: latestTelemetry.logTime,
+              logTime: latestTelemetry.logTime,
               telemetry_id: currentTelemetryId,
               drowsiness: Boolean(latestTelemetry.drowsiness),
               rash_driving: Boolean(latestTelemetry.rash_driving || latestTelemetry.rashDriving),
@@ -269,18 +489,20 @@ const DevicesPage = ({ onViewDevice }) => {
             setSelectedDeviceForRoute(updatedDevice);
             setTelemetryHistory(prev => [latestTelemetry, ...prev.slice(0, 9)]);
             
-            console.log('📍 Updated device location via automatic tracking:', {
+            console.log('📍 Updated device location:', {
               lat: latestTelemetry.latitude,
               lng: latestTelemetry.longitude,
               speed: latestTelemetry.speed,
-              timestamp: latestTelemetry.timestamp
+              logTime: latestTelemetry.logTime
             });
           }
+        } else {
+          console.warn(`No valid telemetry during tracking for device ${currentDeviceId}:`, latestTelemetry);
         }
       } catch (error) {
         console.error('❌ Automatic tracking error:', error);
       }
-    }, 10000);
+    }, 5000);
     
     setTrackingInterval(interval);
   }, [realtimeTracking]);
@@ -303,33 +525,14 @@ const DevicesPage = ({ onViewDevice }) => {
     setTelemetryHistory([]);
   };
 
-  // Get device status with enhanced telemetry information
-  const getDeviceStatus = (device) => {
-    const telemetry = deviceTelemetryData[device.device_id];
-    const rawStatus = device.status || 'unknown';
-    console.log('Raw device status:', rawStatus);
-
-    if (!device.status) {
-      return { color: 'gray', text: 'Unknown', icon: '?' };
-    }
-    
-    const status = rawStatus.toLowerCase();
-    const hasGPS = telemetry && telemetry.latitude && telemetry.longitude;
-    
-    if (status === 'active' || status === 'activated') {
-      return { color: 'green', text: 'Active', icon: '📍' };
-    } else if (status === 'inactive') {
-      return { color: 'red', text: 'Offline', icon: '🔴' };
-    } else {
-      return { color: 'gray', text: status, icon: '⚪' };
-    }
-  };
-
   // Check if device has GPS data for route icon
   const hasGPSData = (device) => {
     const currentDeviceId = device.device_id || device.deviceId || device.id;
     const telemetry = deviceTelemetryData[currentDeviceId];
-    return telemetry && telemetry.latitude && telemetry.longitude;
+    return telemetry && telemetry.latitude && telemetry.longitude && 
+           !isNaN(telemetry.latitude) && !isNaN(telemetry.longitude) && 
+           (telemetry.logTime || telemetry.timestamp) && 
+           !isNaN(new Date(telemetry.logTime || telemetry.timestamp).getTime());
   };
 
   // Filter devices based on search and status
@@ -339,12 +542,14 @@ const DevicesPage = ({ onViewDevice }) => {
         (device.device_name && device.device_name.toLowerCase().includes(searchTerm.toLowerCase())) ||
         (device.device_id && device.device_id.toString().includes(searchTerm));
       
+      // Updated status filtering based on actual device status
+      const deviceStatus = getDeviceStatus(device);
       const matchesStatus = statusFilter === 'all' || 
-        (device.status && device.status.toLowerCase() === statusFilter.toLowerCase());
+        deviceStatus.text.toLowerCase() === statusFilter.toLowerCase();
       
       return matchesSearch && matchesStatus;
     });
-  }, [localDevices, searchTerm, statusFilter]);
+  }, [localDevices, searchTerm, statusFilter, getDeviceStatus]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -357,13 +562,26 @@ const DevicesPage = ({ onViewDevice }) => {
     currentPage * itemsPerPage
   );
 
-  // Manual refresh handler
+  // Manual refresh handler with complete cache clearing
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await forceRefresh();
+      // Clear all cached data
+      setDeviceTelemetryData({});
+      setDeviceDetails({});
+      
+      // Force refresh from data context
+      await forceRefresh(true);
+      
       showSuccess('Data refreshed successfully');
+      
+      // Re-fetch fresh data after a short delay
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+      
     } catch (error) {
+      console.error('❌ Refresh error:', error);
       showError('Refresh failed', error.message);
     } finally {
       setRefreshing(false);
@@ -422,6 +640,52 @@ const DevicesPage = ({ onViewDevice }) => {
         </button>
       </div>
 
+      {/* Status Summary */}
+      {hasDevices && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="p-4 bg-white border border-gray-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-600">Total Devices</p>
+                <p className="text-2xl font-bold text-gray-900">{localDevices.length}</p>
+              </div>
+              <Shield className="w-8 h-8 text-blue-600" />
+            </div>
+          </div>
+          
+          <div className="p-4 bg-white border border-green-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-green-600">Active Devices</p>
+                <p className="text-2xl font-bold text-green-900">
+                  {localDevices.filter(device => getDeviceStatus(device).text === 'Active').length}
+                </p>
+                <p className="text-xs text-green-600">Active with recent telemetry</p>
+              </div>
+              <div className="flex items-center justify-center w-8 h-8 bg-green-100 rounded-lg">
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="p-4 bg-white border border-red-200 rounded-lg">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-red-600">Deactivated/Issues</p>
+                <p className="text-2xl font-bold text-red-900">
+                  {localDevices.filter(device => {
+                    const status = getDeviceStatus(device).text;
+                    return status === 'Deactivated' || status === 'No Signal' || status === 'Inactive';
+                  }).length}
+                </p>
+                <p className="text-xs text-red-600">Deactivated or no signal</p>
+              </div>
+              <AlertTriangle className="w-8 h-8 text-red-600" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="flex-1">
@@ -442,7 +706,9 @@ const DevicesPage = ({ onViewDevice }) => {
           className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
         >
           <option value="all">All Status</option>
-          <option value="active">Active</option>
+          <option value="active">Active (Recent Telemetry)</option>
+          <option value="deactivated">Deactivated</option>
+          <option value="no signal">No Signal</option>
           <option value="inactive">Inactive</option>
         </select>
       </div>
@@ -483,9 +749,32 @@ const DevicesPage = ({ onViewDevice }) => {
                   const status = getDeviceStatus(device);
                   const telemetry = deviceTelemetryData[device.device_id];
                   const associatedVehicle = vehicles.find(v => v.vehicle_id === device.vehicle_id);
-                  const lastUpdated = device.last_updated || (telemetry?.timestamp ? timeAgo(telemetry.timestamp) : 'N/A');
                   
-                  console.log('Device data for debugging:', { device_id: device.device_id, last_updated: device.last_updated, telemetry });
+                  // Get the most accurate timestamp - prioritize telemetry logTime over device last_updated
+                  const telemetryTimestamp = telemetry?.logTime || telemetry?.timestamp;
+                  const deviceTimestamp = device.last_updated;
+                  const mostRecentTimestamp = telemetryTimestamp || deviceTimestamp;
+                  
+                  let lastUpdated = 'N/A';
+                  let fullTimestamp = '';
+                  
+                  if (mostRecentTimestamp) {
+                    const parsedTime = new Date(mostRecentTimestamp);
+                    if (!isNaN(parsedTime.getTime())) {
+                      lastUpdated = timeAgo(mostRecentTimestamp);
+                      fullTimestamp = parsedTime.toLocaleString();
+                    }
+                  }
+                  
+                  console.log('Device timestamp data:', { 
+                    device_id: device.device_id, 
+                    telemetryLogTime: telemetry?.logTime,
+                    telemetryTimestamp: telemetry?.timestamp,
+                    deviceTimestamp,
+                    mostRecentTimestamp,
+                    lastUpdated,
+                    fullTimestamp
+                  });
 
                   return (
                     <tr key={device.device_id} className="border-t hover:bg-gray-50">
@@ -507,14 +796,31 @@ const DevicesPage = ({ onViewDevice }) => {
                         {associatedVehicle ? associatedVehicle.vehicle_number : 'N/A'}
                       </td>
                       <td className="px-4 py-2">
-                        <div className="flex items-center space-x-2">
+                        <div className="flex items-center space-x-2" title={status.tooltip}>
                           <div className={`w-2 h-2 rounded-full bg-${status.color}-500`}></div>
                           <span className="text-sm text-gray-700">{status.text}</span>
                           <span className="text-xs">{status.icon}</span>
                         </div>
                       </td>
                       <td className="px-4 py-2 text-gray-600">
-                        {lastUpdated}
+                        <div className="text-sm">
+                          <div>{lastUpdated}</div>
+                          {fullTimestamp && (
+                            <div className="text-xs text-gray-500" title="Exact timestamp from API">
+                              📅 {fullTimestamp}
+                            </div>
+                          )}
+                          {telemetryTimestamp && (
+                            <div className="text-xs text-blue-600" title="Telemetry logTime from database">
+                              📡 {new Date(telemetryTimestamp).toLocaleString()}
+                            </div>
+                          )}
+                          {!telemetryTimestamp && deviceTimestamp && (
+                            <div className="text-xs text-gray-400" title="Device last updated">
+                              🔄 {new Date(deviceTimestamp).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center space-x-2">
@@ -589,9 +895,8 @@ const DevicesPage = ({ onViewDevice }) => {
           size="6xl"
         >
           <div className="space-y-4">
-            {/* Enhanced Device Information Panel */}
+            {/* Device Information Panel */}
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {/* Device Info */}
               <div className="p-4 rounded-lg bg-gray-50">
                 <h4 className="flex items-center gap-2 mb-3 font-medium text-gray-900">
                   <Shield className="w-5 h-5 text-blue-600" />
@@ -600,19 +905,17 @@ const DevicesPage = ({ onViewDevice }) => {
                 <div className="space-y-2 text-sm text-gray-600">
                   <p><strong>ID:</strong> {selectedDeviceForRoute.device_id}</p>
                   <p><strong>Name:</strong> {selectedDeviceForRoute.device_name || 'N/A'}</p>
-                  <p><strong>Type:</strong> {selectedDeviceForRoute.device_type}</p>
+                  <p><strong>Type:</strong> {selectedDeviceForRoute.device_type || 'N/A'}</p>
                   <p><strong>Status:</strong> {getDeviceStatus(selectedDeviceForRoute).text}</p>
                 </div>
               </div>
               
-              {/* Vehicle Info with Live Location Data */}
               <div className="p-4 rounded-lg bg-blue-50">
                 <h4 className="flex items-center gap-2 mb-3 font-medium text-blue-900">
                   <MapPin className="w-5 h-5 text-blue-600" />
                   Vehicle Information & Live Location
                 </h4>
                 <div className="space-y-3">
-                  {/* Vehicle Details */}
                   {selectedDeviceForRoute.associatedVehicle && (
                     <div className="space-y-2 text-sm text-blue-800">
                       <p><strong>Number:</strong> {selectedDeviceForRoute.associatedVehicle.vehicle_number}</p>
@@ -621,8 +924,6 @@ const DevicesPage = ({ onViewDevice }) => {
                       <p><strong>Model:</strong> {selectedDeviceForRoute.associatedVehicle.model}</p>
                     </div>
                   )}
-                  
-                  {/* Current Location & Telemetry */}
                   <div className="pt-3 border-t border-blue-200">
                     <h5 className="mb-2 text-sm font-medium text-blue-900">Current Location</h5>
                     <div className="grid grid-cols-2 gap-2 text-xs text-blue-700">
@@ -631,7 +932,7 @@ const DevicesPage = ({ onViewDevice }) => {
                       <div><strong>Speed:</strong> {selectedDeviceForRoute.speed?.toFixed(1) || 'N/A'} km/h</div>
                       <div><strong>Heading:</strong> {selectedDeviceForRoute.heading?.toFixed(0) || 'N/A'}°</div>
                       <div><strong>Acceleration:</strong> {selectedDeviceForRoute.acceleration?.toFixed(2) || 'N/A'} m/s²</div>
-                      <div><strong>Last Update:</strong> {selectedDeviceForRoute.telemetry_timestamp ? new Date(selectedDeviceForRoute.telemetry_timestamp).toLocaleString() : 'N/A'}</div>
+                      <div><strong>Last Update:</strong> {selectedDeviceForRoute.logTime ? new Date(selectedDeviceForRoute.logTime).toLocaleString() : 'N/A'}</div>
                     </div>
                   </div>
                 </div>
@@ -706,7 +1007,7 @@ const DevicesPage = ({ onViewDevice }) => {
                 <div className="flex items-center space-x-3">
                   <div className={`w-3 h-3 rounded-full ${realtimeTracking ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></div>
                   <span className="text-sm text-green-800">
-                    {realtimeTracking ? 'Auto tracking active - updating every 10 seconds' : 'Starting automatic tracking...'}
+                    {realtimeTracking ? 'Auto tracking active - updating every 5 seconds' : 'Starting automatic tracking...'}
                   </span>
                 </div>
                 <div className="text-xs text-green-700">
@@ -715,7 +1016,7 @@ const DevicesPage = ({ onViewDevice }) => {
               </div>
             </div>
 
-            {/* Map Container - Working Map */}
+            {/* Map Container */}
             <div className="border border-gray-200 rounded-lg">
               <div className="p-3 border-b border-gray-200 bg-gray-50">
                 <h4 className="flex items-center gap-2 font-medium text-gray-900">
@@ -762,7 +1063,8 @@ const DevicesPage = ({ onViewDevice }) => {
                       {telemetryHistory.slice(0, 5).map((telemetry, index) => (
                         <tr key={telemetry.id || index} className={index === 0 ? 'bg-blue-50' : 'bg-white'}>
                           <td className="px-2 py-1 text-xs text-gray-900">
-                            {telemetry.timestamp ? new Date(telemetry.timestamp).toLocaleString() : 'N/A'}
+                            {telemetry.logTime ? new Date(telemetry.logTime).toLocaleString() : 
+                             (telemetry.timestamp ? new Date(telemetry.timestamp).toLocaleString() : 'N/A')}
                           </td>
                           <td className="px-2 py-1 text-xs text-gray-900">
                             {telemetry.latitude ? parseFloat(telemetry.latitude).toFixed(6) : 'N/A'}

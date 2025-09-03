@@ -1,9 +1,12 @@
 import React from 'react';
-import { Shield, Link, Car, Bell, Navigation as RouteIcon, MapPin, Settings } from 'lucide-react'; // Renamed Navigation to RouteIcon
+import { Shield, Link, Car, Bell, Navigation as RouteIcon, MapPin, Settings } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 
-const Navigation = ({ activeTab, setActiveTab }) => {
+const Navigation = ({ activeTab, onTabChange, setActiveTab }) => {
   const { data } = useData();
+
+  // Use either onTabChange or setActiveTab (for backward compatibility)
+  const handleTabChange = onTabChange || setActiveTab;
 
   // Safely get alarms count with fallback
   const getAlarmsCount = () => {
@@ -27,10 +30,9 @@ const Navigation = ({ activeTab, setActiveTab }) => {
     }
   };
 
-  // Get active journeys count (you can implement this later when you have the service)
+  // Get active journeys count
   const getActiveJourneysCount = () => {
     try {
-      // This will work once you implement the route tracking service
       const activeJourneys = JSON.parse(localStorage.getItem('active_journeys') || '{}');
       return Object.keys(activeJourneys).length;
     } catch (error) {
@@ -43,11 +45,19 @@ const Navigation = ({ activeTab, setActiveTab }) => {
     { id: 'assign', label: 'Assign Devices', icon: Link },
     { id: 'devices', label: 'My Devices', icon: Shield },
     { id: 'alarms', label: 'Alarms', icon: Bell },
+   // { id: 'route-tracker', label: 'Route Tracker', icon: RouteIcon },
+   // { id: 'diagnostics', label: 'Diagnostics', icon: Settings },
   ];
 
   const unresolvedAlarmsCount = getAlarmsCount();
   const vehiclesWithGPS = getVehiclesWithGPS();
   const activeJourneysCount = getActiveJourneysCount();
+
+  // Guard against missing handleTabChange
+  if (!handleTabChange) {
+    console.error('Navigation component requires either onTabChange or setActiveTab prop');
+    return null;
+  }
 
   return (
     <nav className="bg-white border-b">
@@ -56,7 +66,7 @@ const Navigation = ({ activeTab, setActiveTab }) => {
           {navigationItems.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
-              onClick={() => setActiveTab(id)}
+              onClick={() => handleTabChange(id)}
               className={`flex items-center gap-2 py-4 px-2 border-b-2 font-medium text-sm ${
                 activeTab === id
                   ? 'border-blue-500 text-blue-600'
@@ -66,11 +76,21 @@ const Navigation = ({ activeTab, setActiveTab }) => {
               <Icon className="w-4 h-4" />
               {label}
               
+              {/* Show badge for alarms */}
+             {/* {id === 'alarms' && unresolvedAlarmsCount > 0 && (
+                <span className="px-2 py-1 ml-1 text-xs text-white bg-red-500 rounded-full">
+                  {unresolvedAlarmsCount}
+                </span>
+              )}*/}
+              
+              {/* Show badge for live map */}
               {id === 'live-map' && vehiclesWithGPS > 0 && (
                 <span className="px-2 py-1 ml-1 text-xs text-white bg-green-500 rounded-full">
                   {vehiclesWithGPS}
                 </span>
               )}
+              
+              {/* Show badge for route tracker */}
               {id === 'route-tracker' && activeJourneysCount > 0 && (
                 <span className="px-2 py-1 ml-1 text-xs text-white bg-blue-500 rounded-full">
                   {activeJourneysCount}

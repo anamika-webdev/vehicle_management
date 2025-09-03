@@ -19,7 +19,6 @@ import ApiOnlyEnhancedVehicleTrackingModal from '../tracking/ApiOnlyEnhancedVehi
 import apiService from '../../services/api';
 import EventBasedAlarmTable from '../alarms/EventBasedAlarmTable';
 
-
 const Dashboard = () => {
   const { isLoggedIn } = useAuth();
   const [activeTab, setActiveTab] = useState('overview');
@@ -27,7 +26,6 @@ const Dashboard = () => {
   const [selectedVehicleId, setSelectedVehicleId] = useState(null);
   const [showApiTracking, setShowApiTracking] = useState(false);
   const [selectedTrackingVehicle, setSelectedTrackingVehicle] = useState(null);
-  
   
   // GLOBAL LIVE ALARM STATE
   const [criticalAlarmPopup, setCriticalAlarmPopup] = useState(null);
@@ -37,522 +35,106 @@ const Dashboard = () => {
   const [seenAlarmIds, setSeenAlarmIds] = useState(new Set());
   const [selectedAlarmForView, setSelectedAlarmForView] = useState(null);
   const [showViewModal, setShowViewModal] = useState(false);
+  const [tableRefreshTrigger, setTableRefreshTrigger] = useState(0);
 
-  const [deviceModalOpen, setDeviceModalOpen] = useState(false);
-  const [selectedDeviceForModal, setSelectedDeviceForModal] = useState(null);
-
-  const openDeviceMapModal = (device) => {
-  setSelectedDeviceForModal(device);
-  setDeviceModalOpen(true);
-   };
-
-  
   const audioRef = useRef(null);
   const globalPollingRef = useRef(null);
   const eventSourceRef = useRef(null);
 
-  // Initialize audio for critical alarms
+  // FIXED: Initialize simple buzzer sound
   useEffect(() => {
-    audioRef.current = new Audio('https://www.soundjay.com/buttons/beep-01a.mp3');
-    audioRef.current.preload = 'auto';
-
-    // Request notification permission on load
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then(permission => {
-        console.log('Notification permission:', permission);
-      });
-    }
-  }, []);
-
-  // Fetch persistent alarms
-  const fetchPersistentAlarms = async () => {
-    try {
-      const response = await apiService.getManagerAlarms(1, 100);
-      if (response.success && response.data) {
-        const normalizedAlarms = response.data.map(alarm => ({
-          id: alarm.alert_id || alarm.alarmId || alarm.alarm_id || alarm.id,
-          device_id: alarm.device_id || alarm.deviceId,
-          alarmType: alarm.alert_type || alarm.alarm_type || alarm.alarmType || 'Unknown',
-          severity: alarm.severity || alarm.alarmType || 'medium',
-          status: alarm.status || 'active',
-          message: alarm.message || alarm.description || 'No description',
-          timestamp: alarm.timestamp || alarm.alarmTime || alarm.createdAt || new Date().toISOString(),
-          resolved: Boolean(alarm.resolved),
-          latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-          longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
-          imageUrl: alarm.imageUrl || alarm.previewUrl || alarm.image_url,
-          isLive: false,
-          source: 'persistent'
-        }));
-        setPersistentAlarms(normalizedAlarms);
-      } else {
-        throw new Error('Failed to fetch persistent alarms');
-      }
-    } catch (err) {
-      console.error('Fetch persistent alarms error:', err);
-      toast.error('Failed to fetch persistent alarms');
-    }
-  };
-
-  // GLOBAL LIVE ALARM POLLING
-  const startGlobalLiveAlarmPolling = useCallback(async () => {
-    if (globalPollingRef.current) {
-      clearInterval(globalPollingRef.current);
-    }
-
-    console.log('🌍 Starting GLOBAL live alarm polling...');
-    setGlobalStreamActive(true);
-
-    const pollForGlobalLiveAlarms = async () => {
+    console.log('🔊 Initializing simple buzzer audio...');
+    
+    const createSimpleBuzzer = () => {
       try {
-        console.log('🔍 Global polling for live alarms...');
-        const response = await apiService.getManagerAlarms(1, 20);
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioContext = new AudioContext();
         
-        if (response.success && response.data) {
-          const now = new Date();
-          const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
-          
-          const recentAlarms = response.data.filter(alarm => {
-            const alarmTime = new Date(alarm.timestamp || alarm.alarmTime || alarm.createdAt);
-            return alarmTime > tenMinutesAgo && !alarm.resolved;
-          });
-          
-          console.log(`📊 Found ${recentAlarms.length} recent alarms globally`);
-          
-          recentAlarms.forEach(alarm => {
-            const alarmId = alarm.alert_id || alarm.alarm_id || alarm.alarmId || alarm.id;
-            
-            if (!seenAlarmIds.has(alarmId)) {
-              console.log('🚨 NEW GLOBAL LIVE ALARM DETECTED:', alarm);
-              
-              setSeenAlarmIds(prev => new Set([...prev, alarmId]));
-              
-              const liveAlarm = {
-                id: alarmId,
-                device_id: alarm.device_id || alarm.deviceId,
-                alarmType: alarm.alert_type || alarm.alarm_type || alarm.alarmType || 'Live Alert',
-                severity: alarm.severity || alarm.alarmType || 'high',
-                status: alarm.status || 'active',
-                message: alarm.message || alarm.description || 'Live alarm detected',
-                timestamp: alarm.timestamp || alarm.alarmTime || alarm.createdAt || new Date().toISOString(),
-                resolved: Boolean(alarm.resolved),
-                latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
-                longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
-                imageUrl: alarm.imageUrl || alarm.previewUrl || alarm.image_url,
-                isLive: true,
-                source: 'live'
-              };
-
-              setGlobalLiveAlarms(prev => {
-                const updatedAlarms = [liveAlarm, ...prev.filter(a => a.id !== alarmId)];
-                console.log(`📢 Updated global live alarms: ${updatedAlarms.length} alarms`);
-                return updatedAlarms;
-              });
-              
-              const severity = (liveAlarm.severity || liveAlarm.alarmType || 'medium').toLowerCase();
-              if (liveAlarm.isLive && (severity === 'critical' || severity === 'high')) {
-                console.log(`🚨 Triggering GLOBAL popup for Alarm ID: ${alarmId}, Severity: ${severity}, Current Tab: ${activeTab}`);
-                setCriticalAlarmPopup(liveAlarm);
+        audioRef.current = {
+          play: () => {
+            return new Promise((resolve) => {
+              try {
+                console.log('🔊 Playing simple buzzer sound');
                 
-                if (audioRef.current) {
-                  audioRef.current.play().catch(error => 
-                    console.error('Failed to play alarm sound:', error)
-                  );
-                }
+                // Create simple buzzer: 3 quick beeps at 800Hz
+                const createBuzzerBeep = (delay) => {
+                  setTimeout(() => {
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800Hz buzzer
+                    oscillator.type = 'square'; // Square wave for buzzer sound
+                    
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                    
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + 0.2);
+                  }, delay);
+                };
                 
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  new Notification('🚨 LIVE ALARM', {
-                    body: `${liveAlarm.alarmType}: ${liveAlarm.message}`,
-                    icon: '/favicon.ico',
-                    requireInteraction: true
-                  });
-                }
+                // Play 3 quick buzzer beeps
+                createBuzzerBeep(0);     // First beep
+                createBuzzerBeep(300);   // Second beep
+                createBuzzerBeep(600);   // Third beep
+                
+                resolve();
+                
+              } catch (error) {
+                console.error('Simple buzzer error:', error);
+                resolve(); // Don't fail, just resolve
               }
-            }
-          });
-        } else {
-          console.warn('No alarms received or API call failed');
-        }
+            });
+          }
+        };
+        
+        console.log('✅ Simple buzzer sound created');
       } catch (error) {
-        console.error('❌ Global live alarm polling error:', error);
+        console.error('❌ Failed to create simple buzzer:', error);
+        // Final fallback - no sound
+        audioRef.current = { play: () => Promise.resolve() };
       }
     };
-    
-    globalPollingRef.current = setInterval(pollForGlobalLiveAlarms, 10000);
-    pollForGlobalLiveAlarms();
-  }, [seenAlarmIds, activeTab]);
 
-  const stopGlobalLiveAlarmPolling = useCallback(() => {
-    if (globalPollingRef.current) {
-      clearInterval(globalPollingRef.current);
-      globalPollingRef.current = null;
-    }
-    setGlobalStreamActive(false);
-    console.log('🛑 Global live alarm polling stopped');
+    // Try to load a simple buzzer audio file first, then fallback to Web Audio
+    audioRef.current = new Audio();
+    audioRef.current.src = '/buzzer.mp3'; // Simple buzzer file
+    audioRef.current.preload = 'auto';
+    audioRef.current.volume = 0.6;
+    audioRef.current.loop = false;
+    
+    audioRef.current.addEventListener('error', () => {
+      console.warn('❌ Failed to load buzzer.mp3, using Web Audio buzzer');
+      createSimpleBuzzer();
+    });
+    
+    audioRef.current.addEventListener('canplaythrough', () => {
+      console.log('✅ Buzzer audio loaded successfully');
+    });
+    
+    audioRef.current.load();
   }, []);
 
-  // Global EventSource stream for live alarms
-useEffect(() => {
-  if (!isLoggedIn || !apiService.getToken()) return;
-
-  const mid = 1; // TODO: Replace with actual manager ID
-  console.log(`🚀 Starting secure SSE stream for mid=${mid}...`);
-  
-  let isConnected = true;
-  
-  const connectSecureStream = async () => {
-    try {
-      const token = apiService.getToken();
-      if (!token) {
-        console.error('❌ No auth token available');
-        return;
-      }
-
-      console.log('🔐 Starting secure SSE with Authorization header...');
-      
-      const response = await fetch(`http://164.52.194.198:9090/alarm/v1/stream/${mid}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'text/event-stream',
-          'Cache-Control': 'no-cache'
+  // Force alarm table refresh function
+  const forceAlarmTableRefresh = useCallback(() => {
+    console.log('🔄 Forcing alarm table refresh');
+    setTableRefreshTrigger(prev => prev + 1);
+    
+    // Dispatch custom event for table to listen
+    if (window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('alarmTableRefresh', {
+        detail: { 
+          timestamp: new Date().toISOString(),
+          trigger: 'manual'
         }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      console.log('✅ Secure SSE stream connected');
-      setGlobalStreamActive(true);
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      eventSourceRef.current = { 
-        close: () => { 
-          isConnected = false; 
-          reader.cancel();
-          setGlobalStreamActive(false);
-        },
-        readyState: 1
-      };
-
-      const processStream = async () => {
-        try {
-          while (isConnected) {
-            const { done, value } = await reader.read();
-            
-            if (done) break;
-
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                try {
-                  const data = JSON.parse(line.slice(6));
-                  const alarmId = data.alert_id || data.alarm_id || data.alarmId || `alarm_${Date.now()}`;
-
-                  if (!seenAlarmIds.has(alarmId)) {
-                    console.log("📡 Secure SSE alarm received:", data);
-
-                    const liveAlarm = {
-                      id: alarmId,
-                      device_id: data.device_id || data.deviceId,
-                      alarmType: data.alarmType || 'Live Alert',
-                      severity: data.severity || data.alarmType || 'high',
-                      status: 'active',
-                      message: data.message || data.description || 'Live alarm detected',
-                      timestamp: data.timestamp || data.alarmTime || data.createdAt || new Date().toISOString(),
-                      resolved: Boolean(data.resolved),
-                      latitude: data.latitude ? parseFloat(data.latitude) : null,
-                      longitude: data.longitude ? parseFloat(data.longitude) : null,
-                      imageUrl: data.imageUrl || data.previewUrl || data.image_url,
-                      isLive: true,
-                      source: 'stream'
-                    };
-
-                    setSeenAlarmIds(prev => new Set([...prev, alarmId]));
-                    setGlobalLiveAlarms(prev => [liveAlarm, ...prev]);
-
-                    const allowedSeverities = ['critical', 'high', 'moderate', 'medium', 'low'];
-                    const severity = (liveAlarm.severity || '').toLowerCase();
-
-                    if (liveAlarm.isLive && allowedSeverities.includes(severity)) {
-                      console.log(`🚨 Triggering popup for severity: ${severity}, Alarm ID: ${alarmId}`);
-                      setCriticalAlarmPopup(liveAlarm);
-
-                      if (audioRef.current) {
-                        audioRef.current.play().catch(err => console.error("🔈 Sound error:", err));
-                      }
-
-                      if ('Notification' in window && Notification.permission === 'granted') {
-                        new Notification('🚨 LIVE ALARM', {
-                          body: `${liveAlarm.alarmType}: ${liveAlarm.message}`,
-                          icon: '/favicon.ico',
-                          requireInteraction: true
-                        });
-                      }
-                    }
-                  }
-                } catch (parseError) {
-                  console.error('❌ Parse error:', parseError);
-                }
-              }
-            }
-          }
-        } catch (streamError) {
-          console.error('❌ Stream error:', streamError);
-        } finally {
-          setGlobalStreamActive(false);
-          
-          if (isConnected && isLoggedIn) {
-            setTimeout(() => {
-              if (isLoggedIn && apiService.getToken()) {
-                console.log('🔄 Reconnecting secure SSE...');
-                connectSecureStream();
-              }
-            }, 5000);
-          }
-        }
-      };
-
-      processStream();
-
-    } catch (error) {
-      console.error('❌ Secure SSE failed:', error);
-      setGlobalStreamActive(false);
-      
-      if (isConnected && isLoggedIn) {
-        setTimeout(() => {
-          if (isLoggedIn && apiService.getToken()) {
-            connectSecureStream();
-          }
-        }, 5000);
-      }
+      }));
     }
-  };
+  }, []);
 
-  connectSecureStream();
-
-  return () => {
-    isConnected = false;
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-  };
-}, [isLoggedIn, seenAlarmIds, activeTab]);
-
-  // Start global polling and fetch persistent alarms when user is logged in
- useEffect(() => {
-  if (!isLoggedIn || !apiService.getToken()) return;
-
-  const mid = 1;
-  let isActive = true;
-  let controller = new AbortController();
-
-  const startSecureSSEStream = async () => {
-    try {
-      const token = apiService.getToken();
-      if (!token) {
-        console.error('❌ No auth token available');
-        return;
-      }
-
-      console.log('🚀 Starting secure SSE with Authorization header...');
-      
-      const response = await fetch(`http://164.52.194.198:9090/alarm/v1/stream/${mid}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'text/event-stream',
-          'Cache-Control': 'no-cache'
-        },
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      console.log('✅ Secure SSE stream connected');
-      setGlobalStreamActive(true);
-
-      // Store cleanup function
-      eventSourceRef.current = {
-        close: () => {
-          isActive = false;
-          controller.abort();
-          setGlobalStreamActive(false);
-        },
-        readyState: 1 // OPEN
-      };
-
-      // Process the stream
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (isActive && !controller.signal.aborted) {
-        try {
-          const { done, value } = await reader.read();
-          
-          if (done) {
-            console.log('📡 SSE stream ended');
-            break;
-          }
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          
-          // Keep the last incomplete line in buffer
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(line.slice(6));
-                console.log('📡 Secure SSE alarm received:', data);
-                
-                const alarmId = data.alert_id || data.alarm_id || data.alarmId || `alarm_${Date.now()}`;
-
-                if (!seenAlarmIds.has(alarmId)) {
-                  const liveAlarm = {
-                    id: alarmId,
-                    device_id: data.device_id || data.deviceId,
-                    alarmType: data.alarmType || 'Live Alert',
-                    severity: data.severity || data.alarmType || 'high',
-                    status: 'active',
-                    message: data.message || data.description || 'Live alarm detected',
-                    timestamp: data.timestamp || data.alarmTime || data.createdAt || new Date().toISOString(),
-                    resolved: Boolean(data.resolved),
-                    latitude: data.latitude ? parseFloat(data.latitude) : null,
-                    longitude: data.longitude ? parseFloat(data.longitude) : null,
-                    imageUrl: data.imageUrl || data.previewUrl || data.image_url,
-                    isLive: true,
-                    source: 'secure_stream'
-                  };
-
-                  setSeenAlarmIds(prev => new Set([...prev, alarmId]));
-                  setGlobalLiveAlarms(prev => [liveAlarm, ...prev]);
-
-                  // Trigger popup for all severities
-                  const allowedSeverities = ['critical', 'high', 'moderate', 'medium', 'low'];
-                  const severity = (liveAlarm.severity || '').toLowerCase();
-
-                  if (liveAlarm.isLive && allowedSeverities.includes(severity)) {
-                    console.log(`🚨 Triggering secure SSE popup: ${severity}, ID: ${alarmId}`);
-                    setCriticalAlarmPopup(liveAlarm);
-
-                    // Sound and notifications
-                    if (audioRef.current) {
-                      audioRef.current.play().catch(err => console.error("🔈 Sound error:", err));
-                    }
-
-                    if ('Notification' in window && Notification.permission === 'granted') {
-                      new Notification('🚨 LIVE ALARM', {
-                        body: `${liveAlarm.alarmType}: ${liveAlarm.message}`,
-                        icon: '/favicon.ico',
-                        requireInteraction: liveAlarm.severity === 'critical'
-                      });
-                    }
-                  }
-                }
-              } catch (parseError) {
-                console.error('❌ Parse error:', parseError);
-              }
-            }
-          }
-        } catch (readError) {
-          if (!controller.signal.aborted) {
-            console.error('❌ Stream read error:', readError);
-            break;
-          }
-        }
-      }
-
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        console.error('❌ Secure SSE connection failed:', error);
-      }
-    } finally {
-      setGlobalStreamActive(false);
-      
-      // Auto-reconnect if still logged in
-      if (isActive && isLoggedIn && !controller.signal.aborted) {
-        setTimeout(() => {
-          if (isLoggedIn && apiService.getToken()) {
-            controller = new AbortController();
-            startSecureSSEStream();
-          }
-        }, 5000);
-      }
-    }
-  };
-
-  startSecureSSEStream();
-
-  return () => {
-    isActive = false;
-    controller.abort();
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-  };
-}, [isLoggedIn, seenAlarmIds, activeTab]);
-
-  // Alarm action handlers
-  const handleAlarmAcknowledge = async (alarmId) => {
-    try {
-      const response = await apiService.acknowledgeAlarm(alarmId);
-      if (response.success) {
-        setGlobalLiveAlarms(prev =>
-          prev.map(alarm =>
-            alarm.id === alarmId ? { ...alarm, status: 'acknowledged', resolved: false } : alarm
-          )
-        );
-        setPersistentAlarms(prev =>
-          prev.map(alarm =>
-            alarm.id === alarmId ? { ...alarm, status: 'acknowledged', resolved: false } : alarm
-          )
-        );
-        setCriticalAlarmPopup(prev => (prev && prev.id === alarmId ? null : prev));
-        toast.success('Alarm acknowledged');
-      } else {
-        throw new Error('Failed to acknowledge alarm');
-      }
-    } catch (err) {
-      console.error('Acknowledge error:', err);
-      toast.error('Failed to acknowledge alarm');
-    }
-  };
-
-  const handleAlarmResolve = async (alarmId) => {
-    try {
-      const response = await apiService.resolveAlarm(alarmId);
-      if (response.success) {
-        setGlobalLiveAlarms(prev =>
-          prev.map(alarm =>
-            alarm.id === alarmId ? { ...alarm, status: 'resolved', resolved: true } : alarm
-          )
-        );
-        setPersistentAlarms(prev =>
-          prev.map(alarm =>
-            alarm.id === alarmId ? { ...alarm, status: 'resolved', resolved: true } : alarm
-          )
-        );
-        setCriticalAlarmPopup(prev => (prev && prev.id === alarmId ? null : prev));
-        toast.success('Alarm resolved');
-      } else {
-        throw new Error('Failed to resolve alarm');
-      }
-    } catch (err) {
-      console.error('Resolve error:', err);
-      toast.error('Failed to resolve alarm');
-    }
-  };
-
+  // Navigation handlers
   const handleViewDevice = (deviceId) => {
     setSelectedDeviceId(deviceId);
     setActiveTab('device-details');
@@ -570,7 +152,7 @@ useEffect(() => {
 
   const handleBackFromVehicleDetails = () => {
     setSelectedVehicleId(null);
-    setActiveTab('vehicles');
+    setActiveTab('overview');
   };
 
   const handleApiTracking = (vehicle) => {
@@ -578,17 +160,465 @@ useEffect(() => {
     setShowApiTracking(true);
   };
 
-  const handleMapVehicleSelect = (vehicle) => {
-    setSelectedVehicleId(vehicle.vehicle_id);
-    setActiveTab('vehicle-details');
+  // FIXED: Enhanced sound playing function
+  const playAlarmSound = useCallback(async () => {
+    if (!audioRef.current) {
+      console.warn('⚠️ No audio reference available');
+      return;
+    }
+
+    try {
+      console.log('🔊 Attempting to play alarm sound...');
+      
+      // Reset audio to beginning
+      if (audioRef.current.currentTime !== undefined) {
+        audioRef.current.currentTime = 0;
+      }
+      
+      await audioRef.current.play();
+      console.log('✅ Alarm sound played successfully');
+      
+    } catch (error) {
+      console.error('❌ Failed to play alarm sound:', error);
+      
+      // Try alternative notification methods
+      try {
+        // Vibration API for mobile devices
+        if ('vibrate' in navigator) {
+          navigator.vibrate([200, 100, 200, 100, 200]);
+          console.log('📳 Vibration triggered as audio fallback');
+        }
+        
+        // Visual flash effect
+        document.body.style.backgroundColor = '#ff0000';
+        setTimeout(() => {
+          document.body.style.backgroundColor = '';
+        }, 200);
+        
+      } catch (fallbackError) {
+        console.error('❌ Fallback notification methods failed:', fallbackError);
+      }
+    }
+  }, []);
+
+  // FIXED: Enhanced alarm processing with proper metrics handling
+  const processNewAlarm = useCallback((alarmData, source = 'unknown') => {
+    const alarmId = alarmData.alarmId || alarmData.id || alarmData.alert_id || `alarm_${Date.now()}`;
+    
+    // Skip if already seen
+    if (seenAlarmIds.has(alarmId)) {
+      console.log(`⏭️ Skipping duplicate alarm: ${alarmId}`);
+      return;
+    }
+
+    console.log(`🚨 Processing new alarm from ${source}:`, alarmData);
+
+    // FIXED: Enhanced normalize alarm data with proper metrics
+    const normalizedAlarm = {
+      id: alarmId,
+      device_id: alarmData.deviceId || alarmData.device_id || 'UNKNOWN',
+      alarmType: alarmData.alarmType || alarmData.alert_type || alarmData.type || 'Alert',
+      severity: (alarmData.severity || 'medium').toLowerCase(),
+      status: alarmData.status || 'active',
+      message: alarmData.message || alarmData.description || 'New alarm detected',
+      timestamp: alarmData.timestamp || alarmData.alarmTime || new Date().toISOString(),
+      latitude: alarmData.latitude ? parseFloat(alarmData.latitude) : null,
+      longitude: alarmData.longitude ? parseFloat(alarmData.longitude) : null,
+      imageUrl: alarmData.imageUrl || alarmData.previewUrl || alarmData.image_url || null,
+      speed: alarmData.speed !== undefined ? parseFloat(alarmData.speed) : null,
+      acceleration: alarmData.acceleration !== undefined ? parseFloat(alarmData.acceleration) : null,
+      
+      // FIXED: Proper handling of metrics (same as alarm table)
+      drowsiness: (() => {
+        if (alarmData.drowsiness !== undefined && alarmData.drowsiness !== null) {
+          const drowsinessValue = parseFloat(alarmData.drowsiness);
+          return isNaN(drowsinessValue) ? null : drowsinessValue;
+        }
+        if (alarmData.drowsiness_level !== undefined && alarmData.drowsiness_level !== null) {
+          const drowsinessValue = parseFloat(alarmData.drowsiness_level);
+          return isNaN(drowsinessValue) ? null : drowsinessValue;
+        }
+        return null;
+      })(),
+      
+      rashDriving: (() => {
+        if (alarmData.rashDriving !== undefined && alarmData.rashDriving !== null) {
+          return alarmData.rashDriving === true || alarmData.rashDriving === 'true' || alarmData.rashDriving === 1 || alarmData.rashDriving === '1';
+        }
+        if (alarmData.rash_driving !== undefined && alarmData.rash_driving !== null) {
+          return alarmData.rash_driving === true || alarmData.rash_driving === 'true' || alarmData.rash_driving === 1 || alarmData.rash_driving === '1';
+        }
+        return null;
+      })(),
+      
+      collision: (() => {
+        if (alarmData.collision !== undefined && alarmData.collision !== null) {
+          return alarmData.collision === true || alarmData.collision === 'true' || alarmData.collision === 1 || alarmData.collision === '1';
+        }
+        if (alarmData.collision_detected !== undefined && alarmData.collision_detected !== null) {
+          return alarmData.collision_detected === true || alarmData.collision_detected === 'true' || alarmData.collision_detected === 1 || alarmData.collision_detected === '1';
+        }
+        return null;
+      })(),
+      
+      isLive: true,
+      source: source,
+      resolved: false
+    };
+
+    // Debug logging for processed alarm
+    console.log('🔍 Processed alarm metrics:', {
+      alarmId: normalizedAlarm.id,
+      drowsiness: normalizedAlarm.drowsiness,
+      rashDriving: normalizedAlarm.rashDriving,
+      collision: normalizedAlarm.collision
+    });
+
+    // FIXED: Immediate popup trigger (no delays)
+    const allowedSeverities = ['critical', 'high', 'moderate', 'medium', 'low'];
+    if (normalizedAlarm.isLive && allowedSeverities.includes(normalizedAlarm.severity)) {
+      console.log(`🚨 INSTANT POPUP TRIGGER for ${normalizedAlarm.severity} alarm: ${alarmId}`);
+      
+      // Set popup IMMEDIATELY
+      setCriticalAlarmPopup(normalizedAlarm);
+
+      // FIXED: Play sound immediately (no await to avoid delays)
+      playAlarmSound().catch(error => 
+        console.error('Sound play error:', error)
+      );
+
+      // FIXED: Enhanced browser notification
+      if ('Notification' in window) {
+        if (Notification.permission === 'granted') {
+          new Notification('🚨 LIVE ALARM DETECTED', {
+            body: `${normalizedAlarm.severity.toUpperCase()}: ${normalizedAlarm.alarmType} - ${normalizedAlarm.message}`,
+            icon: '/favicon.ico',
+            requireInteraction: normalizedAlarm.severity === 'critical',
+            tag: `alarm-${alarmId}`, // Prevent duplicate notifications
+            vibrate: [200, 100, 200], // Vibration pattern
+          });
+        } else if (Notification.permission === 'default') {
+          // Request permission and show notification
+          Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+              new Notification('🚨 LIVE ALARM DETECTED', {
+                body: `${normalizedAlarm.severity.toUpperCase()}: ${normalizedAlarm.alarmType}`,
+                icon: '/favicon.ico',
+              });
+            }
+          });
+        }
+      }
+    }
+
+    // Add to seen list (after popup to avoid race conditions)
+    setSeenAlarmIds(prev => new Set([...prev, alarmId]));
+
+    // Update global live alarms
+    setGlobalLiveAlarms(prev => {
+      const filtered = prev.filter(a => a.id !== alarmId);
+      const updated = [normalizedAlarm, ...filtered];
+      console.log(`📢 Updated global live alarms: ${updated.length} total`);
+      return updated;
+    });
+
+    // Force table refresh (minimal delay)
+    setTimeout(() => {
+      forceAlarmTableRefresh();
+    }, 50); // Reduced from 100ms to 50ms
+
+  }, [seenAlarmIds, forceAlarmTableRefresh, playAlarmSound]);
+
+  // FIXED: Enhanced SSE stream with faster processing
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    let isActive = true;
+    let reconnectTimeout = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+
+    const startSSEConnection = async () => {
+      try {
+        console.log('🚀 Starting unified SSE stream...');
+        
+        const token = apiService.getToken();
+        if (!token) {
+          console.error('❌ No auth token available');
+          return;
+        }
+
+        // Clean up existing connection
+        if (eventSourceRef.current) {
+          eventSourceRef.current.close();
+        }
+
+        setGlobalStreamActive(true);
+
+        // Use your existing API service endpoint
+        const sseUrl = `${apiService.baseUrl}/alarm/v1/stream/1`;
+        
+        const response = await fetch(sseUrl, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache'
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`SSE connection failed: ${response.status} ${response.statusText}`);
+        }
+
+        console.log('✅ SSE stream connected successfully');
+        reconnectAttempts = 0;
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        // Store connection reference for cleanup
+        eventSourceRef.current = {
+          close: () => {
+            isActive = false;
+            reader.cancel();
+            setGlobalStreamActive(false);
+          }
+        };
+
+        // FIXED: Optimized stream processing for faster response
+        while (isActive) {
+          try {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log('📡 SSE stream ended');
+              break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            // Process each line immediately (no batching)
+            for (const line of lines) {
+              if (line.trim() === '') continue;
+              
+              if (line.startsWith('data: ')) {
+                try {
+                  const jsonData = line.slice(6).trim();
+                  if (jsonData === '') continue;
+                  
+                  const alarmData = JSON.parse(jsonData);
+                  console.log('📊 Parsed alarm data:', alarmData);
+                  
+                  // FIXED: Process alarm immediately (no setTimeout)
+                  processNewAlarm(alarmData, 'sse_stream');
+                  
+                } catch (parseError) {
+                  console.error('❌ Failed to parse SSE data:', parseError, 'Raw line:', line);
+                }
+              }
+            }
+          } catch (readError) {
+            if (isActive) {
+              console.error('❌ SSE read error:', readError);
+              break;
+            }
+          }
+        }
+
+      } catch (error) {
+        console.error('❌ SSE connection error:', error);
+      } finally {
+        setGlobalStreamActive(false);
+        
+        // Auto-reconnect logic
+        if (isActive && isLoggedIn && reconnectAttempts < maxReconnectAttempts) {
+          reconnectAttempts++;
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 30000);
+          
+          console.log(`🔄 Reconnecting SSE in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+          
+          reconnectTimeout = setTimeout(() => {
+            if (isActive && isLoggedIn) {
+              startSSEConnection();
+            }
+          }, delay);
+        }
+      }
+    };
+
+    // Start the connection
+    startSSEConnection();
+
+    // Cleanup function
+    return () => {
+      isActive = false;
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
+    };
+  }, [isLoggedIn, processNewAlarm]);
+
+  // BACKUP: Polling mechanism for when SSE fails
+  useEffect(() => {
+    if (!isLoggedIn || globalStreamActive) return;
+
+    console.log('🔄 Starting backup polling (SSE not active)...');
+    
+    const pollForAlarms = async () => {
+      try {
+        const response = await apiService.getManagerAlarms(0, 10);
+        
+        if (response.success && response.data) {
+          response.data.forEach(alarm => {
+            processNewAlarm(alarm, 'backup_polling');
+          });
+        }
+      } catch (error) {
+        console.error('❌ Backup polling error:', error);
+      }
+    };
+
+    // Poll every 10 seconds when SSE is not working (reduced from 15s)
+    const pollInterval = setInterval(pollForAlarms, 10000);
+    pollForAlarms(); // Initial poll
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [isLoggedIn, globalStreamActive, processNewAlarm]);
+
+  // FIXED: Enhanced alarm resolve function using the new API
+  const handleAlarmResolve = async (alarmId) => {
+    try {
+      console.log(`🔧 Resolving alarm: ${alarmId}`);
+      
+      // Call the new resolve API endpoint
+      const response = await fetch(`http://164.52.194.198:9090/alarm/v1/resolve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiService.getToken()}`
+        },
+        body: JSON.stringify({
+          alarmID: alarmId,
+          isResolved: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Alarm resolve API response:', result);
+
+      if (result.success || response.status === 200) {
+        // Update global live alarms state
+        setGlobalLiveAlarms(prev =>
+          prev.map(alarm =>
+            alarm.id === alarmId
+              ? { ...alarm, resolved: true, resolvedAt: new Date().toISOString(), status: 'resolved' }
+              : alarm
+          )
+        );
+
+        // Update persistent alarms state
+        setPersistentAlarms(prev =>
+          prev.map(alarm =>
+            alarm.id === alarmId
+              ? { ...alarm, resolved: true, resolvedAt: new Date().toISOString(), status: 'resolved' }
+              : alarm
+          )
+        );
+
+        // Close popup if it's for this alarm
+        setCriticalAlarmPopup(prev => (prev && prev.id === alarmId ? null : prev));
+
+        toast.success('✅ Alarm resolved successfully');
+        forceAlarmTableRefresh();
+      } else {
+        throw new Error(result.message || 'Failed to resolve alarm');
+      }
+    } catch (error) {
+      console.error('❌ Failed to resolve alarm:', error);
+      toast.error(`❌ Failed to resolve alarm: ${error.message}`);
+    }
   };
 
+  // FIXED: Enhanced alarm acknowledge function (keeping existing logic)
+  const handleAlarmAcknowledge = async (alarmId) => {
+    try {
+      console.log(`📋 Acknowledging alarm: ${alarmId}`);
+      
+      // Use existing acknowledge API or create similar pattern
+      const response = await fetch(`http://164.52.194.198:9090/alarm/v1/acknowledge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiService.getToken()}`
+        },
+        body: JSON.stringify({
+          alarmID: alarmId,
+          isAcknowledged: true
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Alarm acknowledge API response:', result);
+
+      if (result.success || response.status === 200) {
+        setGlobalLiveAlarms(prev =>
+          prev.map(alarm =>
+            alarm.id === alarmId
+              ? { ...alarm, acknowledged: true, acknowledgedAt: new Date().toISOString() }
+              : alarm
+          )
+        );
+
+        setPersistentAlarms(prev =>
+          prev.map(alarm =>
+            alarm.id === alarmId
+              ? { ...alarm, acknowledged: true, acknowledgedAt: new Date().toISOString() }
+              : alarm
+          )
+        );
+
+        toast.success('✅ Alarm acknowledged successfully');
+        forceAlarmTableRefresh();
+      } else {
+        throw new Error(result.message || 'Failed to acknowledge alarm');
+      }
+    } catch (error) {
+      console.error('❌ Failed to acknowledge alarm:', error);
+      toast.error(`❌ Failed to acknowledge alarm: ${error.message}`);
+    }
+  };
+
+  // Request notification permission on component mount
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      console.log('🔔 Requesting notification permission...');
+      Notification.requestPermission().then(permission => {
+        console.log('🔔 Notification permission:', permission);
+      });
+    }
+  }, []);
+
+  // Render content based on active tab
   const renderContent = () => {
     switch (activeTab) {
       case 'overview':
         return <Overview onViewVehicle={handleViewVehicle} />;
-      case 'live-map':
-        return <LeafletLiveMapPage />;
       case 'assign':
         return <DeviceAssignment />;
       case 'error-diagnostic':
@@ -619,9 +649,7 @@ useEffect(() => {
             persistentAlarms={persistentAlarms}
             onAlarmAcknowledge={handleAlarmAcknowledge}
             onAlarmResolve={handleAlarmResolve}
-            onStartGlobalStream={startGlobalLiveAlarmPolling}
-            onStopGlobalStream={stopGlobalLiveAlarmPolling}          
-            
+            tableRefreshTrigger={tableRefreshTrigger}
           />
         );
       case 'device-details':
@@ -641,28 +669,34 @@ useEffect(() => {
   }
 
   return (
-
     <div className="min-h-screen bg-gray-100">
       
-      {/* GLOBAL Critical Alarm Popup */}
-      {criticalAlarmPopup && criticalAlarmPopup.isLive && (
+      {/* FIXED: Instant Global Critical Alarm Popup */}
+      {criticalAlarmPopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 animate-fadeIn">
-          <div className={`w-full max-w-lg p-6 mx-4 bg-white rounded-lg shadow-2xl
+          <div className={`w-full max-w-lg p-6 mx-4 bg-white rounded-lg shadow-2xl animate-pulse
             ${criticalAlarmPopup.severity ? {
-              'critical': 'border-4 border-red-500',
-              'high': 'border-4 border-orange-500',
-              'moderate': 'border-4 border-yellow-500',
-              'low': 'border-4 border-green-500'
+              'critical': 'border-4 border-red-500 bg-red-50',
+              'high': 'border-4 border-orange-500 bg-orange-50',
+              'moderate': 'border-4 border-yellow-500 bg-yellow-50',
+              'medium': 'border-4 border-yellow-500 bg-yellow-50',
+              'low': 'border-4 border-green-500 bg-green-50'
             }[criticalAlarmPopup.severity.toLowerCase()] || 'border-4 border-gray-500' : 'border-4 border-gray-500'}`}>
+            
             <div className="flex items-center gap-3 mb-4">
               <AlertTriangle className={`w-10 h-10 animate-bounce
                 ${criticalAlarmPopup.severity ? {
                   'critical': 'text-red-600',
                   'high': 'text-orange-600',
                   'moderate': 'text-yellow-600',
+                  'medium': 'text-yellow-600',
                   'low': 'text-green-600'
                 }[criticalAlarmPopup.severity.toLowerCase()] || 'text-gray-600' : 'text-gray-600'}`} />
-              <h2 className="text-2xl font-bold text-red-800">🚨 LIVE ALARM DETECTED</h2>
+              
+              <h2 className="text-2xl font-bold text-red-800 animate-pulse">
+                🚨 {criticalAlarmPopup.severity?.toUpperCase() || 'LIVE'} ALARM DETECTED
+              </h2>
+              
               <button onClick={() => {
                 console.log(`Dismissing popup for Alarm ID: ${criticalAlarmPopup.id}`);
                 setCriticalAlarmPopup(null);
@@ -677,50 +711,60 @@ useEffect(() => {
                   'critical': 'border-red-200 bg-red-50',
                   'high': 'border-orange-200 bg-orange-50',
                   'moderate': 'border-yellow-200 bg-yellow-50',
+                  'medium': 'border-yellow-200 bg-yellow-50',
                   'low': 'border-green-200 bg-green-50'
                 }[criticalAlarmPopup.severity.toLowerCase()] || 'border-gray-200 bg-gray-50' : 'border-gray-200 bg-gray-50'}`}>
+                
                 <div className="flex items-center gap-2 mb-2">
                   <div className={`w-3 h-3 rounded-full animate-pulse
                     ${criticalAlarmPopup.severity ? {
                       'critical': 'bg-red-500',
                       'high': 'bg-orange-500',
                       'moderate': 'bg-yellow-500',
+                      'medium': 'bg-yellow-500',
                       'low': 'bg-green-500'
                     }[criticalAlarmPopup.severity.toLowerCase()] || 'bg-gray-500' : 'bg-gray-500'}`} />
                   <p className="font-bold text-red-800">IMMEDIATE ATTENTION REQUIRED</p>
                 </div>
+                
                 <p className="font-semibold text-gray-900">Device: {criticalAlarmPopup.device_id}</p>
                 <p className="text-gray-700">Type: {criticalAlarmPopup.alarmType}</p>
                 <p className="text-gray-700">Message: {criticalAlarmPopup.message}</p>
                 <p className="text-sm text-gray-500">Time: {new Date(criticalAlarmPopup.timestamp).toLocaleString()}</p>
-                {criticalAlarmPopup.severity && (
-                  <p className="text-xs font-bold text-red-600">SEVERITY: {criticalAlarmPopup.severity.toUpperCase()}</p>
-                )}
+                <p className="text-xs font-bold text-red-600">SEVERITY: {criticalAlarmPopup.severity.toUpperCase()}</p>
               </div>
               
               {criticalAlarmPopup.imageUrl && (
-                <img src={criticalAlarmPopup.imageUrl} alt="Critical Alarm" className="object-cover w-full h-32 border rounded" onError={(e) => e.target.style.display = 'none'} />
+                <img 
+                  src={criticalAlarmPopup.imageUrl} 
+                  alt="Critical Alarm" 
+                  className="object-cover w-full h-32 border rounded" 
+                  onError={(e) => e.target.style.display = 'none'} 
+                />
               )}
               
               {(criticalAlarmPopup.latitude && criticalAlarmPopup.longitude) && (
                 <div className="flex items-center gap-2 p-3 border border-blue-200 rounded bg-blue-50">
                   <MapPin className="w-5 h-5 text-blue-600" />
-                  <span className="text-sm font-semibold text-blue-800">📍 Location: {criticalAlarmPopup.latitude.toFixed(4)}, {criticalAlarmPopup.longitude.toFixed(4)}</span>
+                  <span className="text-sm font-semibold text-blue-800">
+                    📍 Location: {criticalAlarmPopup.latitude.toFixed(4)}, {criticalAlarmPopup.longitude.toFixed(4)}
+                  </span>
                 </div>
               )}
             </div>
             
             <div className="flex gap-3 mt-6">
-            <button
-             onClick={() => {
-             setSelectedAlarmForView(criticalAlarmPopup);
-            setShowViewModal(true);
-             setCriticalAlarmPopup(null);
-            }} 
-            className="flex-1 px-4 py-3 text-white bg-orange-600 rounded-lg hover:bg-orange-700"
-             >
-           View
-          </button>
+              <button
+                onClick={() => {
+                  setSelectedAlarmForView(criticalAlarmPopup);
+                  setShowViewModal(true);
+                  setCriticalAlarmPopup(null);
+                }} 
+                className="flex-1 px-4 py-3 text-white bg-orange-600 rounded-lg hover:bg-orange-700"
+              >
+                View Details
+              </button>
+              
               <button 
                 onClick={() => {
                   console.log(`Navigating to alarms tab for Alarm ID: ${criticalAlarmPopup.id}`);
@@ -730,8 +774,9 @@ useEffect(() => {
                 className="flex items-center justify-center flex-1 gap-2 px-4 py-3 font-semibold text-white bg-green-600 rounded-lg hover:bg-green-700"
               >
                 <CheckCircle className="w-5 h-5" />
-                Go to Alarms Tab
+                Go to Alarms
               </button>
+              
               <button 
                 onClick={() => {
                   console.log(`Dismissing popup for Alarm ID: ${criticalAlarmPopup.id}`);
@@ -739,122 +784,88 @@ useEffect(() => {
                 }} 
                 className="flex-1 px-4 py-3 text-white bg-gray-600 rounded-lg hover:bg-gray-700"
               >
-                Dismiss & Continue
+                Dismiss
               </button>
             </div>
-            
-
           </div>
         </div>
       )}
 
       <Header />
       
-{showViewModal && selectedAlarmForView && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 animate-fadeIn">
-    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-      <div className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Alarm Details</h3>
-          <button
-            onClick={() => setShowViewModal(false)}
-            className="text-gray-400 hover:text-gray-600"
-            title="Close modal"
-          >
-            <X className="w-6 h-6" />
-          </button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Alarm ID</label>
-              <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.id}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Type</label>
-              <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.alarmType}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Severity</label>
-              <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.severity}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Status</label>
-              <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.status}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Device ID</label>
-              <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.device_id || 'Unknown'}</p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Time</label>
-              <p className="mt-1 text-sm text-gray-900">
-                {new Date(selectedAlarmForView.timestamp).toLocaleString()}
-              </p>
-            </div>
-            {(selectedAlarmForView.latitude && selectedAlarmForView.longitude) && (
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Location</label>
-                <p className="mt-1 text-sm text-gray-900">
-                  {parseFloat(selectedAlarmForView.latitude).toFixed(6)},{' '}
-                  {parseFloat(selectedAlarmForView.longitude).toFixed(6)}
-                </p>
+      {/* View Modal */}
+      {showViewModal && selectedAlarmForView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 animate-fadeIn">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Alarm Details</h3>
+                <button
+                  onClick={() => setShowViewModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-6 h-6" />
+                </button>
               </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Message</label>
-            <p className="mt-1 text-sm text-gray-900">{selectedAlarmForView.message}</p>
-          </div>
-           
-          {selectedAlarmForView.imageUrl && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Preview Image</label>
-              <img
-                src={selectedAlarmForView.imageUrl}
-                alt="Alarm preview"
-                className="h-auto max-w-full mt-2 border border-gray-300 rounded-lg"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  console.error('❌ Failed to load image in modal:', selectedAlarmForView.imageUrl);
-                }}
-              />
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-gray-900">{selectedAlarmForView.id}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Device ID</label>
+                    <p className="text-gray-900">{selectedAlarmForView.device_id}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Type</label>
+                    <p className="text-gray-900">{selectedAlarmForView.alarmType}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Severity</label>
+                    <span className={`px-2 py-1 text-xs rounded-full ${
+                      selectedAlarmForView.severity === 'critical' ? 'bg-red-100 text-red-800' :
+                      selectedAlarmForView.severity === 'high' ? 'bg-orange-100 text-orange-800' :
+                      selectedAlarmForView.severity === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {selectedAlarmForView.severity}
+                    </span>
+                  </div>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Message</label>
+                  <p className="text-gray-900">{selectedAlarmForView.message}</p>
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium text-gray-500">Timestamp</label>
+                  <p className="text-gray-900">{new Date(selectedAlarmForView.timestamp).toLocaleString()}</p>
+                </div>
+                
+                {selectedAlarmForView.imageUrl && (
+                  <div>
+                    <label className="text-sm font-medium text-gray-500">Image</label>
+                    <img 
+                      src={selectedAlarmForView.imageUrl} 
+                      alt="Alarm" 
+                      className="object-cover w-full h-48 border rounded"
+                      onError={(e) => e.target.style.display = 'none'}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-
-          <div className="flex justify-end pt-4 space-x-3">
-            {selectedAlarmForView.status !== 'resolved' && (
-              <button
-                onClick={() => {
-                  handleAlarmResolve(selectedAlarmForView.id);
-                  setShowViewModal(false);
-                }}
-                className="px-4 py-2 text-white transition-colors bg-green-600 rounded-lg hover:bg-green-700"
-                title="Resolve alarm"
-              >
-                Resolve
-              </button>
-            )}
-            <button
-              onClick={() => setShowViewModal(false)}
-              className="px-4 py-2 text-white transition-colors bg-gray-600 rounded-lg hover:bg-gray-700"
-              title="Close modal"
-            >
-              Close
-            </button>
           </div>
         </div>
-      </div>
-    </div>
-  </div>
-)}
-      {activeTab !== 'device-details' && activeTab !== 'vehicle-details' && (
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
       )}
-      <main className={`p-6 ${globalStreamActive ? '' : ''}`}>
-        {renderContent()}
+
+      <main className="pt-1">
+        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} />
+        <div className="p-6">
+          {renderContent()}
+        </div>
       </main>
       
       {showApiTracking && (
@@ -865,34 +876,75 @@ useEffect(() => {
         />
       )}
       
-      <button 
-        onClick={() => {
-          const testAlarm = {
-            id: `test_${Date.now()}`,
-            device_id: 'TEST_DEVICE',
-            alarmType: 'Test Alert',
-            severity: 'critical',
-            status: 'active',
-            message: 'This is a test alarm!',
-            timestamp: new Date().toISOString(),
-            isLive: true,
-            source: 'test'
-          };
-          console.log('🚨 Triggering test popup for Alarm ID:', testAlarm.id);
-          setCriticalAlarmPopup(testAlarm);
-          setGlobalLiveAlarms(prev => [testAlarm, ...prev]);
-          setSeenAlarmIds(prev => new Set([...prev, testAlarm.id]));
-          if (audioRef.current) {
-            audioRef.current.play().catch(error => 
-              console.error('Failed to play test alarm sound:', error)
-            );
-          }
-          toast.info(`🚨 ${testAlarm.alarmType} - ${testAlarm.message}`, { autoClose: 5000 });
-        }} 
-        className="fixed z-50 px-4 py-2 text-white bg-blue-600 rounded-lg shadow-lg bottom-4 right-4"
-      >
-        Trigger Test Popup
-      </button>
+      {/* ENHANCED Test Buttons with Sound Testing */}
+      <div className="fixed z-50 bottom-4 right-4">
+        <div className="space-y-2">
+          {/* Simple Sound Test Button */}
+        {/*  <button 
+            onClick={() => {
+              console.log('🔊 Testing simple buzzer sound...');
+              playAlarmSound().then(() => {
+                toast.success('🔊 Buzzer sound test completed!');
+              }).catch(error => {
+                toast.error('❌ Buzzer sound test failed: ' + error.message);
+              });
+            }}
+            className="block w-full px-3 py-2 mb-1 text-sm text-white bg-purple-600 rounded-lg shadow-lg hover:bg-purple-700"
+          >
+            🔊 Test Buzzer
+          </button>*/}
+
+          {/* API Test Button */}
+         {/* <button 
+            onClick={async () => {
+              console.log('🔧 Testing Resolve API...');
+              const testAlarmId = 'test_resolve_' + Date.now();
+              try {
+                await handleAlarmResolve(testAlarmId);
+                toast.success('✅ Resolve API test completed!');
+              } catch (error) {
+                toast.error('❌ Resolve API test failed: ' + error.message);
+              }
+            }}
+            className="block w-full px-3 py-2 mb-1 text-sm text-white bg-indigo-600 rounded-lg shadow-lg hover:bg-indigo-700"
+          >
+            🔧 Test Resolve API
+          </button>
+          
+          {['low', 'medium', 'high', 'critical'].map(severity => (
+            <button 
+              key={severity}
+              onClick={() => {
+                const testAlarm = {
+                  id: `test_${severity}_${Date.now()}`,
+                  device_id: 'TEST_DEVICE',
+                  alarmType: `Test ${severity.charAt(0).toUpperCase() + severity.slice(1)} Alert`,
+                  severity: severity,
+                  status: 'active',
+                  message: `This is a test ${severity} severity alarm with sound!`,
+                  timestamp: new Date().toISOString(),
+                  isLive: true,
+                  source: 'test',
+                  resolved: false
+                };
+                
+                console.log(`🚨 Triggering INSTANT test ${severity} popup:`, testAlarm);
+                processNewAlarm(testAlarm, 'test_button');
+                
+                toast.info(`🚨 Test ${severity} alarm triggered with sound!`, { autoClose: 3000 });
+              }} 
+              className={`block w-full px-3 py-2 text-white text-sm rounded-lg shadow-lg mb-1 ${
+                severity === 'critical' ? 'bg-red-600 hover:bg-red-700' :
+                severity === 'high' ? 'bg-orange-600 hover:bg-orange-700' :
+                severity === 'medium' ? 'bg-yellow-600 hover:bg-yellow-700' :
+                'bg-green-600 hover:bg-green-700'
+              }`}
+            >
+              Test {severity.charAt(0).toUpperCase() + severity.slice(1)}
+            </button>
+          ))} */}
+        </div>
+      </div>
       
     </div>
   );
