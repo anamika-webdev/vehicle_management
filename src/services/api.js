@@ -527,11 +527,11 @@ class ApiService {
             latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
             longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
             imageUrl: alarm.previewUrl || alarm.imageUrl || null,
-             speed: alarm.speed !== undefined ? alarm.speed : null,
-             acceleration: alarm.acceleration !== undefined ? alarm.acceleration : null,
-             drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
-             rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
-             collision: alarm.collision !== undefined ? alarm.collision : null
+            speed: alarm.speed !== undefined ? alarm.speed : null,
+            acceleration: alarm.acceleration !== undefined ? alarm.acceleration : null,
+            drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
+            rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+            collision: alarm.collision !== undefined ? alarm.collision : null
           };
         });
         console.log(`✅ Successfully fetched ${transformedData.length} alarms`);
@@ -581,11 +581,11 @@ class ApiService {
           latitude: alarm.latitude ? parseFloat(alarm.latitude) : null,
           longitude: alarm.longitude ? parseFloat(alarm.longitude) : null,
           imageUrl: alarm.previewUrl || alarm.imageUrl || null,
-           speed: alarm.speed !== undefined ? alarm.speed : null,
+          speed: alarm.speed !== undefined ? alarm.speed : null,
           acceleration: alarm.acceleration !== undefined ? alarm.acceleration : null,
           drowsiness: alarm.drowsiness !== undefined ? alarm.drowsiness : null,
-           rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
-           collision: alarm.collision !== undefined ? alarm.collision : null
+          rashDriving: alarm.rashDriving !== undefined ? alarm.rashDriving : null,
+          collision: alarm.collision !== undefined ? alarm.collision : null
         }));
         return {
           success: true,
@@ -721,36 +721,47 @@ class ApiService {
     }
   }
 
-  // New Admin Functions
+  // =================================================================
+  // == ADMIN FUNCTIONS
+  // =================================================================
+
   async getTrips() {
-    // Mock data - replace with your API call
+    console.log(' MOCK: Fetching trips...');
     return Promise.resolve({
       success: true,
       data: [
-        { id: 1, vehicle: 'HR-26-1234', driver: 'Arjun Sharma', shiftTime: '9:00 AM', latitude: 28.4595, longitude: 77.0266 },
-        { id: 2, vehicle: 'DL-1C-5678', driver: 'Rohan Mehra', shiftTime: '10:00 AM', latitude: 28.6139, longitude: 77.2090 },
+        { id: 'T001', vehicle: 'Cab-101 (HR-26-1234)', driver: 'Sanjay Kumar', employee: 'Priya Sharma', scheduledTime: '9:00 AM', latitude: 28.4595, longitude: 77.0266 },
+        { id: 'T002', vehicle: 'Cab-102 (DL-1C-5678)', driver: 'Mohan Singh', employee: 'Rohan Verma', scheduledTime: '10:30 AM', latitude: 28.4795, longitude: 77.0366 },
+        { id: 'T003', vehicle: 'Cab-103 (HR-26-9012)', driver: 'Vijay Sharma', employee: 'Anjali Gupta', scheduledTime: '11:00 AM', latitude: 28.4695, longitude: 77.0166 },
       ],
     });
   }
 
+  async updateTrip(tripData) {
+    console.log(' MOCK: Updating trip with data:', tripData);
+    return Promise.resolve({ success: true, data: tripData });
+  }
+
   async getSosAlerts() {
-    // Mock data - replace with your API call
+    console.log(' MOCK: Fetching SOS alerts...');
     return Promise.resolve({
       success: true,
       data: [
-        { id: 1, driver: 'Arjun Sharma', message: 'Engine trouble' },
-        { id: 2, driver: 'Rohan Mehra', message: 'Medical emergency' },
+        { id: 'SOS001', driver: 'Sanjay Kumar', vehicle: 'Cab-101', message: 'Engine trouble reported near Sector 44.', imageUrl: 'https://via.placeholder.com/600x400.png?text=Engine+Trouble' },
+        { id: 'SOS002', driver: 'Mohan Singh', vehicle: 'Cab-102', message: 'Flat tire on the highway.', imageUrl: null },
+        { id: 'SOS003', driver: 'Vijay Sharma', vehicle: 'Cab-103', message: 'Minor accident, no injuries.', imageUrl: 'https://via.placeholder.com/600x400.png?text=Minor+Accident' },
       ],
     });
   }
 
   async getDriverFeedback() {
-    // Mock data - replace with your API call
+    console.log(' MOCK: Fetching driver feedback...');
     return Promise.resolve({
       success: true,
       data: [
-        { id: 1, employee: 'Priya Patel', driver: 'Arjun Sharma', feedback: 'Excellent and safe driver!', rating: 5 },
-        { id: 2, employee: 'Sameer Verma', driver: 'Rohan Mehra', feedback: 'A bit of a rough ride.', rating: 3 },
+        { id: 'F001', employee: 'Priya Sharma', driver: 'Sanjay Kumar', feedback: 'Excellent and safe driving. Very punctual.', rating: 5 },
+        { id: 'F002', employee: 'Rohan Verma', driver: 'Mohan Singh', feedback: 'A bit late, but the ride was comfortable.', rating: 4 },
+        { id: 'F003', employee: 'Anjali Gupta', driver: 'Vijay Sharma', feedback: 'Very professional and polite driver.', rating: 5 },
       ],
     });
   }
