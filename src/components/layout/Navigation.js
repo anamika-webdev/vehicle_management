@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Link, Car, Bell, Navigation as RouteIcon, MapPin, Settings } from 'lucide-react';
+import { Shield, Link, Car, Bell, Navigation as RouteIcon, MapPin, Settings, UserCog } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 
 const Navigation = ({ activeTab, onTabChange, setActiveTab }) => {
@@ -45,6 +45,7 @@ const Navigation = ({ activeTab, onTabChange, setActiveTab }) => {
     { id: 'assign', label: 'Assign Devices', icon: Link },
     { id: 'devices', label: 'My Devices', icon: Shield },
     { id: 'alarms', label: 'Alarms', icon: Bell },
+    { id: 'admin', label: 'Admin', icon: UserCog }, // New Admin tab
    // { id: 'route-tracker', label: 'Route Tracker', icon: RouteIcon },
    // { id: 'diagnostics', label: 'Diagnostics', icon: Settings },
   ];

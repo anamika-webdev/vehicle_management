@@ -18,6 +18,7 @@ import ApiOnlyRouteTracker from '../tracking/ApiOnlyRouteTracker';
 import ApiOnlyEnhancedVehicleTrackingModal from '../tracking/ApiOnlyEnhancedVehicleTrackingModal';
 import apiService from '../../services/api';
 import EventBasedAlarmTable from '../alarms/EventBasedAlarmTable';
+import AdminDashboard from '../admin/AdminDashboard'; // New Admin component
 
 const Dashboard = () => {
   const { isLoggedIn } = useAuth();
