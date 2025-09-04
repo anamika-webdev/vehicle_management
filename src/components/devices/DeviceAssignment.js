@@ -1,11 +1,10 @@
-// src/components/devices/DeviceAssignment.js - Fixed Status & Alarms Logic with Original UI
-// ONLY fixes the status and alarms calculation logic - UI remains exactly the same
-
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Plus, Car, Smartphone, AlertTriangle, CheckCircle, X, Clock, Zap, Shield, Trash2 } from 'lucide-react';
 import { useData } from '../../contexts/DataContext';
 import { useNotification } from '../notifications/RealTimeNotificationSystem';
 import apiService from '../../services/api';
+import Modal from '../common/Modal'; // Ensure Modal component is available
+import VehicleForm from '../vehicles/VehicleForm'; // Ensure VehicleForm component is available
 
 const DeviceAssignment = () => {
   const { data, loading, refreshData } = useData();
@@ -16,11 +15,9 @@ const DeviceAssignment = () => {
   const [modalType, setModalType] = useState('add');
   const [selectedVehicle, setSelectedVehicle] = useState(null);
 
-  // FIXED: Simplified function focusing only on alarms from correct API endpoint
   const getVehicleWithStatus = (vehicle) => {
     console.log('🔍 Processing vehicle alarms for:', vehicle.vehicle_number || vehicle.vehicleNumber || vehicle.vehicle_id);
     
-    // Get all devices assigned to this vehicle
     const assignedDevices = data.devices.filter(d => {
       const deviceVehicleId = d.vehicle_id || d.vehicleId;
       const vehicleId = vehicle.vehicle_id || vehicle.vehicleId;
@@ -29,19 +26,15 @@ const DeviceAssignment = () => {
       return deviceVehicleId.toString() === vehicleId.toString();
     });
 
-    // Process alarms from /alarm/v1/manager/all API endpoint
     const alertsData = data.alerts || [];
     console.log('🔍 Processing alarms from API:', alertsData.length, 'total alarms');
     
-    // Get alarms for this vehicle's devices from manager/all endpoint
     const vehicleAlarms = alertsData.filter(alarm => {
       if (!alarm) return false;
       
-      // Handle alarm data structure from /alarm/v1/manager/all
       const alarmDeviceId = alarm.deviceId || alarm.device_id || alarm.device;
       if (!alarmDeviceId) return false;
       
-      // Check if alarm belongs to any device assigned to this vehicle
       const belongsToVehicle = assignedDevices.some(device => {
         const deviceId = device.device_id || device.deviceId || device.id;
         return deviceId && alarmDeviceId.toString() === deviceId.toString();
@@ -60,13 +53,11 @@ const DeviceAssignment = () => {
       return belongsToVehicle;
     });
 
-    // Count unresolved alarms based on API data structure
     const unresolvedAlarms = vehicleAlarms.filter(alarm => {
-      // Based on /alarm/v1/manager/all API response structure
       const isResolved = alarm.resolved === true || 
-                        alarm.resolved === 'true' ||
-                        alarm.status === 'resolved' || 
-                        alarm.status === 'RESOLVED';
+                         alarm.resolved === 'true' ||
+                         alarm.status === 'resolved' || 
+                         alarm.status === 'RESOLVED';
       
       return !isResolved;
     });
@@ -89,7 +80,6 @@ const DeviceAssignment = () => {
     return result;
   };
 
-  // Enhanced device assignment handler with better field handling
   const handleDeviceAssignment = async (deviceId, action, vehicleId = null) => {
     console.log('🔗 Device assignment requested:', { deviceId, action, vehicleId });
     
@@ -105,7 +95,6 @@ const DeviceAssignment = () => {
         console.log(`🔗 Unassigning device ${deviceId}`);
         response = await apiService.unassignDeviceFromVehicle(deviceId);
       } else if (action !== 'assign' && action !== 'unassign') {
-        // Handle dropdown selection for assignment (action is vehicleId)
         console.log(`🔗 Assigning device ${deviceId} to vehicle ${action} (from dropdown)`);
         response = await apiService.assignDeviceToVehicle(deviceId, action);
       }
@@ -131,7 +120,6 @@ const DeviceAssignment = () => {
     }
   };
 
-  // Handle unassign with confirmation
   const handleUnassignClick = (deviceId) => {
     setConfirmUnassign(deviceId);
   };
@@ -144,7 +132,6 @@ const DeviceAssignment = () => {
     setConfirmUnassign(null);
   };
 
-  // Modal handlers (keeping original structure)
   const handleAdd = () => {
     setModalType('add');
     setSelectedVehicle(null);
@@ -152,9 +139,18 @@ const DeviceAssignment = () => {
   };
 
   const handleSubmit = async (vehicleData) => {
-    // Implementation for vehicle add/edit
-    console.log('Vehicle submit:', vehicleData);
-    setShowModal(false);
+    try {
+      const result = await apiService.createVehicle(vehicleData);
+      if (result.success) {
+        showSuccess('Vehicle Added', 'New vehicle has been added successfully.');
+        refreshData(); // Refresh the data to show the new vehicle
+        setShowModal(false); // Close the modal on success
+      } else {
+        throw new Error(result.error || 'Failed to create vehicle.');
+      }
+    } catch (error) {
+      showError('Creation Failed', error.message);
+    }
   };
 
   const handleCancel = () => {
@@ -162,76 +158,6 @@ const DeviceAssignment = () => {
     setSelectedVehicle(null);
   };
 
-  // ORIGINAL VehicleCard component - UI unchanged, only using fixed getVehicleWithStatus
-  const VehicleCard = ({ vehicle }) => {
-    const vehicleWithStatus = getVehicleWithStatus(vehicle);
-    
-    return (
-      <div className="p-6 transition-shadow bg-white border rounded-lg shadow-md hover:shadow-lg">
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center space-x-3">
-            <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${
-              vehicleWithStatus.hasDevices ? 'bg-blue-100' : 'bg-gray-100'
-            }`}>
-              <div className={`w-3 h-3 rounded-full ${
-                vehicleWithStatus.hasDevices ? 'bg-blue-500' : 'bg-gray-400'
-              }`}></div>
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900">{vehicle.vehicle_number}</h3>
-              <p className="text-sm text-gray-600">{vehicle.manufacturer} {vehicle.model}</p>
-              <p className="text-xs text-gray-500">{vehicle.vehicle_type}</p>
-            </div>
-          </div>
-          <span className={`px-3 py-1 text-sm rounded-full ${
-            vehicleWithStatus.hasDevices ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
-          }`}>
-            {vehicleWithStatus.hasDevices ? 'Assigned' : 'No Devices'}
-          </span>
-        </div>
-
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div className="text-center">
-            <div className="text-lg font-bold text-blue-900">{vehicleWithStatus.deviceCount}</div>
-            <div className="text-xs text-blue-600">Devices</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-green-900">{vehicleWithStatus.activeDeviceCount}</div>
-            <div className="text-xs text-green-600">Active</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-bold text-red-900">{vehicleWithStatus.alarmCount}</div>
-            <div className="text-xs text-red-600">Alarms</div>
-          </div>
-        </div>
-
-        {vehicleWithStatus.criticalAlarmCount > 0 && (
-          <div className="p-3 mb-4 border border-red-200 rounded bg-red-50">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-              <span className="text-sm font-medium text-red-800">
-                {vehicleWithStatus.criticalAlarmCount} Critical Alert{vehicleWithStatus.criticalAlarmCount > 1 ? 's' : ''}
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-          <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${vehicleWithStatus.hasDevices ? 'bg-blue-500' : 'bg-gray-300'}`}></div>
-            <span className="text-sm text-gray-600">
-              {vehicleWithStatus.hasDevices ? `${vehicleWithStatus.deviceCount} Device${vehicleWithStatus.deviceCount > 1 ? 's' : ''}` : 'No Devices'}
-            </span>
-          </div>
-          <span className="text-xs text-gray-500">
-            {vehicle.vehicle_type || 'N/A'}
-          </span>
-        </div>
-      </div>
-    );
-  };
-
-  // ORIGINAL VehicleDataTable component - UI unchanged, enhanced data processing with debugging
   const VehicleDataTable = () => {
     console.log('🔍 VehicleDataTable rendering with data:', {
       vehicles: data.vehicles.length,
@@ -240,56 +166,29 @@ const DeviceAssignment = () => {
       alarms: data.alarms?.length || 0
     });
     
-    // Log sample data for debugging
-    if (data.vehicles.length > 0) {
-      console.log('🔍 Sample vehicle data:', data.vehicles[0]);
-    }
-    if (data.devices.length > 0) {
-      console.log('🔍 Sample device data:', data.devices[0]);
-    }
-    if (data.alerts.length > 0) {
-      console.log('🔍 Sample alert data:', data.alerts[0]);
-    }
-    
-    // FIXED: Enhanced mapping of API fields to display fields with proper fallbacks
     const tableRows = data.vehicles.map((vehicle, index) => {
-      console.log(`🔍 Processing vehicle ${index + 1}:`, vehicle);
-      
       const vehicleWithStatus = getVehicleWithStatus(vehicle);
-      console.log(`🔍 Vehicle ${index + 1} status result:`, vehicleWithStatus);
-      
-      // Enhanced field mapping to handle different API response formats
       const getFieldValue = (vehicle, primaryField, fallbackFields = [], defaultValue = 'N/A') => {
-        // Check primary field first
         if (vehicle[primaryField] && vehicle[primaryField] !== null && vehicle[primaryField] !== '') {
           return vehicle[primaryField];
         }
-        
-        // Check fallback fields
         for (const fallback of fallbackFields) {
           if (vehicle[fallback] && vehicle[fallback] !== null && vehicle[fallback] !== '') {
             return vehicle[fallback];
           }
         }
-        
         return defaultValue;
       };
 
-      const row = {
+      return {
         vehicle_id: vehicle.vehicle_id,
         vehicle_number: getFieldValue(vehicle, 'vehicle_number', ['vehicleNumber', 'license_plate', 'plateNumber']),
         manufacturer: getFieldValue(vehicle, 'manufacturer', ['vehicleManufacturer', 'make', 'brand']),
         model: getFieldValue(vehicle, 'model', ['vehicle_model', 'vehicleModel', 'vehicleName']),
         vehicle_type: getFieldValue(vehicle, 'vehicle_type', ['vehicleType', 'type', 'category']),
         devices: vehicleWithStatus.deviceCount,
-        alarms: vehicleWithStatus.alarmCount
       };
-      
-      console.log(`🔍 Final table row for vehicle ${index + 1}:`, row);
-      return row;
     });
-
-    console.log('🔍 All processed table rows:', tableRows);
 
     return (
       <div className="p-6 bg-white rounded-lg shadow-md">
@@ -311,7 +210,7 @@ const DeviceAssignment = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                {['Vehicle Number', 'Manufacturer', 'Model', 'Type', 'Devices', 'Alarms', 'Actions'].map((header, index) => (
+                {['Vehicle Number', 'Manufacturer', 'Model', 'Type', 'Devices', 'Actions'].map((header, index) => (
                   <th key={index} className="px-6 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase">
                     {header}
                   </th>
@@ -321,44 +220,34 @@ const DeviceAssignment = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {tableRows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
                     {loading ? 'Loading vehicles...' : 'No vehicles found. Add your first vehicle to get started.'}
                   </td>
                 </tr>
               ) : (
-                tableRows.map((row, index) => {
-                  const vehicle = data.vehicles.find(v => v.vehicle_id === row.vehicle_id);
-                  const vehicleWithStatus = getVehicleWithStatus(vehicle);
-                  
-                  return (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900 whitespace-nowrap">{row.vehicle_number}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.manufacturer}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.model}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.vehicle_type}</td>
-                      <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.devices}</td>
-                      <td className="px-6 py-4 text-sm whitespace-nowrap">
-                        <span className={`${row.alarms > 0 ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
-                          {row.alarms > 0 ? `${row.alarms} alarms` : 'No alarms'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-sm font-medium whitespace-nowrap">
-                        <div className="flex space-x-2">
-                          <button className="text-indigo-600 hover:text-indigo-900">
-                            Edit
-                          </button>
-                          <button 
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete Vehicle"
-                            disabled={loading}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
+                tableRows.map((row, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 text-sm font-medium text-gray-900 whitespace-nowrap">{row.vehicle_number}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.manufacturer}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.model}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.vehicle_type}</td>
+                    <td className="px-6 py-4 text-sm text-gray-900 whitespace-nowrap">{row.devices}</td>
+                    <td className="px-6 py-4 text-sm font-medium whitespace-nowrap">
+                      <div className="flex space-x-2">
+                        <button className="text-indigo-600 hover:text-indigo-900">
+                          Edit
+                        </button>
+                        <button 
+                          className="text-red-600 hover:text-red-900"
+                          title="Delete Vehicle"
+                          disabled={loading}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>
@@ -367,7 +256,6 @@ const DeviceAssignment = () => {
     );
   };
 
-  // ORIGINAL DeviceAssignmentSection component - UI unchanged
   const DeviceAssignmentSection = () => (
     <div className="p-6 bg-white rounded-lg shadow-md">
       <div className="p-6 border-b border-gray-200">
@@ -425,7 +313,7 @@ const DeviceAssignment = () => {
             </div>
           </div>
 
-          {/* Assigned Devices - ORIGINAL SECTION WITH UNASSIGN BUTTON */}
+          {/* Assigned Devices */}
           <div>
             <h4 className="flex items-center gap-2 mb-4 font-semibold text-gray-900 text-md">
               <Car className="w-5 h-5" />
@@ -458,7 +346,6 @@ const DeviceAssignment = () => {
                             </div>
                             
                             {confirmUnassign === device.device_id ? (
-                              // Show confirmation buttons
                               <div className="flex gap-2">
                                 <button
                                   onClick={() => handleConfirmUnassign(device.device_id)}
@@ -476,7 +363,6 @@ const DeviceAssignment = () => {
                                 </button>
                               </div>
                             ) : (
-                              // Show unassign button
                               <button
                                 onClick={() => handleUnassignClick(device.device_id)}
                                 className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-600 transition-colors duration-200 border border-orange-200 rounded-md bg-orange-50 hover:bg-orange-100 hover:border-orange-300 disabled:opacity-50"
@@ -513,7 +399,6 @@ const DeviceAssignment = () => {
 
   return (
     <div className="flex flex-col h-full space-y-6">
-      {/* Horizontal Layout for Vehicle Fleet Management and Device Assignment */}
       <div className="flex flex-1 gap-6">
         <div className="w-1/2">
           <VehicleDataTable />
@@ -522,6 +407,24 @@ const DeviceAssignment = () => {
           <DeviceAssignmentSection />
         </div>
       </div>
+
+      {/* Modal for Adding/Editing a Vehicle */}
+      {showModal && (
+          <Modal 
+              isOpen={showModal} 
+              onClose={handleCancel} 
+              title={modalType === 'add' ? 'Add New Vehicle' : 'Edit Vehicle'}
+          >
+              <VehicleForm 
+                  vehicle={selectedVehicle} 
+                  onSuccess={() => {
+                      setShowModal(false);
+                      refreshData();
+                  }} 
+                  onCancel={handleCancel} 
+              />
+          </Modal>
+      )}
     </div>
   );
 };
